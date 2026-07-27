@@ -46,3 +46,30 @@ export function createMockSupabaseClient(fromResult: ReturnType<typeof chainable
   };
   return client as unknown as SupabaseClient;
 }
+
+/**
+ * A fake of Supabase Storage's per-bucket API (`.storage.from(bucket)`),
+ * for `lib/api/media.ts` tests. `list`/`upload`/`remove` are individually
+ * overridable `vi.fn()`s (defaulting to an empty/successful result so a
+ * test only has to override what it's actually exercising); `getPublicUrl`
+ * defaults to a deterministic fake CDN URL built from the given path.
+ */
+export function createMockStorageClient(overrides?: {
+  list?: ReturnType<typeof vi.fn>;
+  upload?: ReturnType<typeof vi.fn>;
+  remove?: ReturnType<typeof vi.fn>;
+  getPublicUrl?: ReturnType<typeof vi.fn>;
+}) {
+  const bucket = {
+    list: overrides?.list ?? vi.fn(async () => ({ data: [], error: null })),
+    upload: overrides?.upload ?? vi.fn(async () => ({ data: { path: "mock-path" }, error: null })),
+    remove: overrides?.remove ?? vi.fn(async () => ({ data: [], error: null })),
+    getPublicUrl:
+      overrides?.getPublicUrl ??
+      vi.fn((path: string) => ({ data: { publicUrl: `https://mock.supabase.co/storage/v1/object/public/media/${path}` } })),
+  };
+  const client = {
+    storage: { from: vi.fn(() => bucket) },
+  };
+  return { client: client as unknown as SupabaseClient, bucket };
+}

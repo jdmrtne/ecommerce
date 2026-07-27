@@ -173,3 +173,37 @@ create policy "Only admins can insert settings"
 create policy "Only admins can update settings"
   on site_settings for update
   using (exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin'));
+
+-- ---------------------------------------------------------------------
+-- Media (Backend-Integrated). A public Storage bucket for admin-uploaded
+-- images (logo, favicon, product photos), replacing Phase 24's
+-- localStorage/base64 store - and the artificial ~4.5MB total / 1MB-per-
+-- file caps that store enforced only because localStorage itself is
+-- tiny. Real object storage has no equivalent app-level budget; only a
+-- generous per-file guard remains client-side (see
+-- `src/lib/api/media.ts`'s `MAX_ASSET_SOURCE_BYTES`), to catch obvious
+-- mistakes rather than enforce a hard architecture limit. Supabase's own
+-- project-level upload limit (50MB by default, raisable in Dashboard >
+-- Storage > Settings) is the real ceiling above that.
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('media', 'media', true)
+on conflict (id) do nothing;
+
+create policy "Media images are publicly readable"
+  on storage.objects for select
+  using (bucket_id = 'media');
+
+create policy "Only admins can upload media"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'media'
+    and exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin')
+  );
+
+create policy "Only admins can delete media"
+  on storage.objects for delete
+  using (
+    bucket_id = 'media'
+    and exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin')
+  );

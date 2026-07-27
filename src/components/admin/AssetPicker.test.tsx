@@ -3,7 +3,9 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AssetPicker } from "@/components/admin/AssetPicker";
 import { renderWithProviders } from "@/test/utils";
-import { MAX_ASSET_SOURCE_BYTES, addAsset } from "@/lib/mediaStore";
+import { MAX_ASSET_SOURCE_BYTES } from "@/hooks/useMediaAssets";
+import { apiUploadMedia } from "@/lib/api/media";
+import { fakeSupabase } from "@/test/fakeSupabaseAuth";
 
 function makeFile(name: string, sizeBytes: number, type = "image/png"): File {
   return new File([new Uint8Array(sizeBytes)], name, { type });
@@ -11,7 +13,7 @@ function makeFile(name: string, sizeBytes: number, type = "image/png"): File {
 
 describe("AssetPicker", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    fakeSupabase.__reset();
   });
 
   it("renders a trigger button with the given label and no preview when there's no value", () => {
@@ -21,7 +23,7 @@ describe("AssetPicker", () => {
   });
 
   it("shows a small preview of the current value next to the trigger", () => {
-    renderWithProviders(<AssetPicker onSelect={vi.fn()} value="data:image/png;base64,AAAA" label="Choose logo" />);
+    renderWithProviders(<AssetPicker onSelect={vi.fn()} value="https://example.com/logo.png" label="Choose logo" />);
     expect(screen.getByAltText("")).toBeInTheDocument();
   });
 
@@ -31,19 +33,20 @@ describe("AssetPicker", () => {
 
     await user.click(screen.getByRole("button", { name: "Choose image" }));
     expect(screen.getByRole("dialog", { name: "Media library" })).toBeInTheDocument();
-    expect(screen.getByText("No images uploaded yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No images uploaded yet.")).toBeInTheDocument();
   });
 
-  it("uploading a valid image calls onSelect with its data URL and closes the modal", async () => {
+  it("uploading a valid image calls onSelect with its public URL and closes the modal", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     renderWithProviders(<AssetPicker onSelect={onSelect} />);
 
     await user.click(screen.getByRole("button", { name: "Choose image" }));
+    await waitFor(() => expect(screen.getByText("No images uploaded yet.")).toBeInTheDocument());
     await user.upload(screen.getByLabelText("Upload image"), makeFile("swatch.png", 100));
 
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect.mock.calls[0][0]).toMatch(/^data:image\/png;base64,/);
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+    expect(onSelect.mock.calls[0][0]).toContain("swatch.png");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
@@ -53,6 +56,7 @@ describe("AssetPicker", () => {
     renderWithProviders(<AssetPicker onSelect={onSelect} />);
 
     await user.click(screen.getByRole("button", { name: "Choose image" }));
+    await waitFor(() => expect(screen.getByText("No images uploaded yet.")).toBeInTheDocument());
     await user.upload(screen.getByLabelText("Upload image"), makeFile("huge.png", MAX_ASSET_SOURCE_BYTES + 1));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/limit/i);
@@ -60,31 +64,29 @@ describe("AssetPicker", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("selecting an existing library asset calls onSelect with its data URL and closes the modal", async () => {
-    const seeded = addAsset({ name: "hero.png", type: "image/png", dataUrl: "data:image/png;base64,ZZZZ", size: 10 });
-    if (!seeded.ok) throw new Error("seed failed");
+  it("selecting an existing library asset calls onSelect with its public URL and closes the modal", async () => {
+    const seeded = await apiUploadMedia(makeFile("hero.png", 10));
 
     const user = userEvent.setup();
     const onSelect = vi.fn();
     renderWithProviders(<AssetPicker onSelect={onSelect} />);
 
     await user.click(screen.getByRole("button", { name: "Choose image" }));
-    await user.click(screen.getByRole("button", { name: "Use hero.png" }));
+    await user.click(await screen.findByRole("button", { name: "Use hero.png" }));
 
-    expect(onSelect).toHaveBeenCalledWith("data:image/png;base64,ZZZZ");
+    expect(onSelect).toHaveBeenCalledWith(seeded.url);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("deleting a library asset removes it from the grid", async () => {
-    const seeded = addAsset({ name: "hero.png", type: "image/png", dataUrl: "data:image/png;base64,ZZZZ", size: 10 });
-    if (!seeded.ok) throw new Error("seed failed");
+    await apiUploadMedia(makeFile("hero.png", 10));
 
     const user = userEvent.setup();
     renderWithProviders(<AssetPicker onSelect={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Choose image" }));
-    await user.click(screen.getByRole("button", { name: "Delete hero.png" }));
+    await user.click(await screen.findByRole("button", { name: "Delete hero.png" }));
 
-    expect(screen.getByText("No images uploaded yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No images uploaded yet.")).toBeInTheDocument();
   });
 });

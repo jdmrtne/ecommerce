@@ -153,7 +153,7 @@ export function StoreSettings() {
           <h2 className="font-display text-lg text-ink">Branding</h2>
           <div>
             <p className="mb-1.5 text-sm font-medium text-ink">Logo</p>
-            <AssetPicker value={form.logo} onSelect={(dataUrl) => updateField("logo", dataUrl)} label="Choose logo" />
+            <AssetPicker value={form.logo} onSelect={(url) => updateField("logo", url)} label="Choose logo" />
           </div>
           <Input
             label="Logo alt text"
@@ -165,7 +165,7 @@ export function StoreSettings() {
             <p className="mb-1.5 text-sm font-medium text-ink">Favicon</p>
             <AssetPicker
               value={form.favicon}
-              onSelect={(dataUrl) => updateField("favicon", dataUrl)}
+              onSelect={(url) => updateField("favicon", url)}
               label="Choose favicon"
               hint="A small square image works best - it's shown at browser-tab size."
             />

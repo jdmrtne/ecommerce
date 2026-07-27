@@ -70,6 +70,11 @@ export const ERROR_STATES = {
     description: "Something went wrong while loading your order history. Please try again.",
     actionLabel: "Retry",
   } satisfies StateCopy,
+  media: {
+    title: "Couldn't load your media library",
+    description: "Something went wrong while loading your uploaded images. Please try again.",
+    actionLabel: "Retry",
+  } satisfies StateCopy,
   boundary: {
     title: "Something went a little wobbly",
     description: "This part of the page hit a snag. Refreshing usually fixes it.",

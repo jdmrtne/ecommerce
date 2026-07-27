@@ -5,18 +5,21 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { EmptyState } from "@/components/ui/StateMessage";
-import { useMediaAssets } from "@/hooks/useMediaAssets";
-import { formatBytes } from "@/lib/mediaStore";
-import type { MediaAsset } from "@/lib/mediaStore";
+import { EmptyState, ErrorState } from "@/components/ui/StateMessage";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useMediaAssets, MAX_ASSET_SOURCE_BYTES } from "@/hooks/useMediaAssets";
+import { formatBytes } from "@/lib/api/media";
+import type { MediaAsset } from "@/lib/api/media";
 import { PAGE_META } from "@/config/site";
 import { useSiteMeta } from "@/hooks/useSiteMeta";
+import { ERROR_STATES } from "@/content/states";
 
 /**
- * Phase 24 - Media Manager. The full library view: every image an admin
- * has uploaded across the whole site (via this page or via `AssetPicker`
- * from Store Settings/Product Manager - they share the same
- * `lib/mediaStore.ts`), with upload and delete.
+ * Media (Backend-Integrated). The full library view: every image an
+ * admin has uploaded across the whole site (via this page or via
+ * `AssetPicker` from Store Settings/Product Manager - they share the
+ * same `useMediaAssets()`/`lib/api/media.ts`), with upload and delete
+ * against the real `media` Storage bucket.
  *
  * This page and `AssetPicker` are deliberately separate: this is "browse
  * and manage everything", `AssetPicker` is "pick one image for this
@@ -25,7 +28,7 @@ import { useSiteMeta } from "@/hooks/useSiteMeta";
  */
 export function MediaManager() {
   useSiteMeta(PAGE_META.adminMedia);
-  const { assets, totalBytes, budgetBytes, upload, remove } = useMediaAssets();
+  const { assets, status, reload, upload, remove } = useMediaAssets();
 
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -39,22 +42,15 @@ export function MediaManager() {
 
     setIsUploading(true);
     setUploadError(null);
-    try {
-      const result = await upload(file);
-      if (!result.ok) setUploadError(result.error);
-    } catch {
-      setUploadError("Couldn't read that file. Try a different image.");
-    } finally {
-      setIsUploading(false);
-    }
+    const result = await upload(file);
+    if (!result.ok) setUploadError(result.error);
+    setIsUploading(false);
   }
 
   function confirmDelete() {
     if (pendingDelete) remove(pendingDelete.id);
     setPendingDelete(null);
   }
-
-  const usagePercent = budgetBytes > 0 ? Math.min(100, Math.round((totalBytes / budgetBytes) * 100)) : 0;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -79,11 +75,11 @@ export function MediaManager() {
       </div>
 
       <p className="mt-2 text-sm text-ink-soft">
-        A stopgap asset manager, storing uploads in this browser (as data URLs in <code>localStorage</code>) since
-        there&apos;s no real backend yet. Once Phase 25 (Backend Integration) lands, this is superseded by real file
-        storage - images uploaded here won&apos;t carry over automatically. Use the <span className="font-medium">Choose image</span>{" "}
-        control on Store Settings (logo/favicon) and Product Manager (product images) to attach one of these to your
-        site.
+        Images uploaded here are stored in your project's media bucket, not this browser - they're available on
+        every device and to every visitor, with no total-storage cap. Up to{" "}
+        {formatBytes(MAX_ASSET_SOURCE_BYTES)} per file. Use the <span className="font-medium">Choose image</span>{" "}
+        control on Store Settings (logo/favicon) and Product Manager (product images) to attach one of these to
+        your site.
       </p>
 
       {uploadError && (
@@ -93,29 +89,22 @@ export function MediaManager() {
       )}
 
       <Card padding="md" className="mt-6">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium text-ink">Storage used</span>
-          <span className="text-ink-soft">
-            {formatBytes(totalBytes)} / {formatBytes(budgetBytes)}
-          </span>
-        </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-beige">
-          <div
-            className="h-full rounded-full bg-denim transition-[width]"
-            style={{ width: `${usagePercent}%` }}
-          />
-        </div>
-      </Card>
-
-      <Card padding="md" className="mt-6">
-        {assets.length === 0 ? (
+        {status === "loading" ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="aspect-square w-full rounded-md" />
+            ))}
+          </div>
+        ) : status === "error" ? (
+          <ErrorState {...ERROR_STATES.media} onAction={reload} />
+        ) : assets.length === 0 ? (
           <EmptyState title="No images yet" description="Upload one to make it available across the site." />
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
             {assets.map((asset) => (
               <div key={asset.id} className="flex flex-col gap-2">
                 <div className="aspect-square overflow-hidden rounded-md border-2 border-beige bg-beige/40">
-                  <img src={asset.dataUrl} alt={asset.name} className="h-full w-full object-cover" />
+                  <img src={asset.url} alt={asset.name} className="h-full w-full object-cover" />
                 </div>
                 <p className="truncate text-xs font-medium text-ink" title={asset.name}>
                   {asset.name}

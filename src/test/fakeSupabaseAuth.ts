@@ -41,6 +41,13 @@ import { ALL_PRODUCTS } from "@/data/products";
  * group - `"theme"`/`"store"`/`"homepage"`) rather than one table per
  * feature, since every settings editor already shares the same
  * override-over-defaults shape.
+ *
+ * Media (Backend-Integrated) adds a `.storage.from("media")` fake
+ * alongside the table fakes above - an in-memory map keyed by storage
+ * path, standing in for the real `media` Storage bucket (see
+ * `supabase/schema.sql`) - so `AssetPicker`/`MediaManager` tests get the
+ * same no-network, in-memory behavior as everything else that renders
+ * through this shared client.
  */
 
 interface FakeAccount {
@@ -65,12 +72,20 @@ function seedProducts(): Map<string, ProductRow> {
   return new Map(ALL_PRODUCTS.map((p) => [p.id, toProductRow(p)]));
 }
 
+interface FakeMediaObject {
+  path: string;
+  size: number;
+  mimetype: string;
+  createdAt: string;
+}
+
 export function createFakeAuthClient(): FakeAuthClient {
   let accounts = new Map<string, FakeAccount>(); // key: lowercase email
   let profiles = new Map<string, ProfileRow>(); // key: id
   let products = seedProducts();
   let settings = new Map<string, unknown>(); // key: site_settings row key (theme/store/homepage)
   let orders = new Map<string, OrderRow>(); // key: order_number
+  let media = new Map<string, FakeMediaObject>(); // key: storage path
   let session: FakeSession = null;
   let idSeq = 1;
   let listeners = new Set<AuthListener>();
@@ -191,7 +206,49 @@ export function createFakeAuthClient(): FakeAuthClient {
     };
   }
 
+  function mediaBucket() {
+    return {
+      list: (_prefix: string, opts?: { sortBy?: { column: string; order: "asc" | "desc" } }) => {
+        const rows = [...media.values()].sort((a, b) => {
+          const cmp = a.createdAt.localeCompare(b.createdAt);
+          return opts?.sortBy?.order === "desc" ? -cmp : cmp;
+        });
+        return Promise.resolve({
+          data: rows.map((row) => ({
+            id: row.path,
+            name: row.path,
+            created_at: row.createdAt,
+            metadata: { size: row.size, mimetype: row.mimetype },
+          })),
+          error: null,
+        });
+      },
+      upload: (path: string, file: File, options?: { contentType?: string }) => {
+        media.set(path, {
+          path,
+          size: file.size,
+          mimetype: options?.contentType ?? file.type,
+          createdAt: new Date().toISOString(),
+        });
+        return Promise.resolve({ data: { path }, error: null });
+      },
+      remove: (paths: string[]) => {
+        for (const path of paths) media.delete(path);
+        return Promise.resolve({ data: [], error: null });
+      },
+      getPublicUrl: (path: string) => ({
+        data: { publicUrl: `https://fake.supabase.co/storage/v1/object/public/media/${path}` },
+      }),
+    };
+  }
+
   const client = {
+    storage: {
+      from: (bucket: string) => {
+        if (bucket === "media") return mediaBucket();
+        throw new Error(`FakeAuthClient: unsupported bucket "${bucket}"`);
+      },
+    },
     from: (table: string) => {
       if (table === "profiles") return profilesTable();
       if (table === "products") return productsTable();
@@ -248,6 +305,7 @@ export function createFakeAuthClient(): FakeAuthClient {
       products = seedProducts();
       settings = new Map();
       orders = new Map();
+      media = new Map();
       session = null;
       listeners = new Set();
     },

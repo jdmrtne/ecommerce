@@ -3,13 +3,13 @@ import type { ChangeEvent, ReactNode } from "react";
 import { Image as ImageIcon, Upload, Trash2, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { useMediaAssets } from "@/hooks/useMediaAssets";
-import { formatBytes } from "@/lib/mediaStore";
+import { useMediaAssets, MAX_ASSET_SOURCE_BYTES } from "@/hooks/useMediaAssets";
+import { formatBytes } from "@/lib/api/media";
 import { cn } from "@/lib/cn";
 
 interface AssetPickerProps {
-  /** Called with the selected asset's data URL. Closes the modal on selection. */
-  onSelect: (dataUrl: string) => void;
+  /** Called with the selected asset's public URL. Closes the modal on selection. */
+  onSelect: (url: string) => void;
   /** Current value, shown as a small preview next to the trigger button. */
   value?: string;
   /** Trigger button label. Defaults to "Choose image". */
@@ -19,22 +19,22 @@ interface AssetPickerProps {
 }
 
 /**
- * Phase 24 - Media Manager. Reusable "attach an image" control: a trigger
- * button (with an optional small preview of the current value) that opens
- * a modal combining upload + a grid of every previously-uploaded asset.
- * Picking or uploading an asset calls `onSelect(dataUrl)` with the data
- * URL directly - every field this attaches to (`branding.logo`,
- * `branding.favicon`, a product's `images[]`) already stores a plain
- * string URL, so a data URL slots in with no schema change.
+ * Media (Backend-Integrated). Reusable "attach an image" control: a
+ * trigger button (with an optional small preview of the current value)
+ * that opens a modal combining upload + a grid of every previously-
+ * uploaded asset. Picking or uploading an asset calls `onSelect(url)`
+ * with the asset's public Storage URL - every field this attaches to
+ * (`branding.logo`, `branding.favicon`, a product's `images[]`) already
+ * stores a plain string URL, so this slots in with no schema change.
  *
  * Used from Store Settings (logo/favicon) and Product Manager (product
  * images) - see `MASTER_HANDOFF.md` for the full list. Both call sites
- * get the same upload guard (`lib/mediaStore.ts`'s size limits) and the
- * same library of previously-uploaded assets, so an image uploaded for
- * one product is reusable for another without re-uploading.
+ * share the same library of previously-uploaded assets via
+ * `useMediaAssets()`, so an image uploaded for one product is reusable
+ * for another without re-uploading.
  */
 export function AssetPicker({ onSelect, value, label = "Choose image", hint }: AssetPickerProps) {
-  const { assets, totalBytes, budgetBytes, upload, remove } = useMediaAssets();
+  const { assets, status, upload, remove } = useMediaAssets();
   const [isOpen, setIsOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -45,8 +45,8 @@ export function AssetPicker({ onSelect, value, label = "Choose image", hint }: A
     setUploadError(null);
   }
 
-  function selectAsset(dataUrl: string) {
-    onSelect(dataUrl);
+  function selectAsset(url: string) {
+    onSelect(url);
     close();
   }
 
@@ -57,18 +57,13 @@ export function AssetPicker({ onSelect, value, label = "Choose image", hint }: A
 
     setIsUploading(true);
     setUploadError(null);
-    try {
-      const result = await upload(file);
-      if (!result.ok) {
-        setUploadError(result.error);
-      } else {
-        selectAsset(result.asset.dataUrl);
-      }
-    } catch {
-      setUploadError("Couldn't read that file. Try a different image.");
-    } finally {
-      setIsUploading(false);
+    const result = await upload(file);
+    if (!result.ok) {
+      setUploadError(result.error);
+    } else {
+      selectAsset(result.asset.url);
     }
+    setIsUploading(false);
   }
 
   return (
@@ -91,9 +86,7 @@ export function AssetPicker({ onSelect, value, label = "Choose image", hint }: A
               <Upload size={20} className="text-ink-soft" />
               <div>
                 <p className="text-sm font-medium text-ink">Upload a new image</p>
-                <p className="text-xs text-ink-soft">
-                  Stored in this browser only (pre-backend). Up to 1 MB per image.
-                </p>
+                <p className="text-xs text-ink-soft">Up to {formatBytes(MAX_ASSET_SOURCE_BYTES)} per image.</p>
               </div>
             </div>
             <Button
@@ -121,23 +114,25 @@ export function AssetPicker({ onSelect, value, label = "Choose image", hint }: A
             </p>
           )}
 
-          <p className="text-xs text-ink-soft">
-            {formatBytes(totalBytes)} of {formatBytes(budgetBytes)} media storage used.
-          </p>
-
           <div className="flex flex-col gap-2">
             <p className="text-sm font-medium text-ink">Your library</p>
-            {assets.length === 0 ? (
+            {status === "loading" ? (
+              <p className="text-sm text-ink-soft">Loading images...</p>
+            ) : status === "error" ? (
+              <p role="alert" className="text-sm text-error">
+                Couldn't load your media library. Try closing and reopening this dialog.
+              </p>
+            ) : assets.length === 0 ? (
               <p className="text-sm text-ink-soft">No images uploaded yet.</p>
             ) : (
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
                 {assets.map((asset) => (
                   <AssetTile
                     key={asset.id}
-                    src={asset.dataUrl}
+                    src={asset.url}
                     name={asset.name}
-                    isSelected={value === asset.dataUrl}
-                    onSelect={() => selectAsset(asset.dataUrl)}
+                    isSelected={value === asset.url}
+                    onSelect={() => selectAsset(asset.url)}
                     onDelete={() => remove(asset.id)}
                   />
                 ))}

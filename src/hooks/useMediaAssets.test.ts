@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { act, renderHook } from "@testing-library/react";
-import { useMediaAssets } from "@/hooks/useMediaAssets";
-import { MAX_ASSET_SOURCE_BYTES, MAX_TOTAL_MEDIA_BYTES } from "@/lib/mediaStore";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { useMediaAssets, MAX_ASSET_SOURCE_BYTES } from "@/hooks/useMediaAssets";
+import { fakeSupabase } from "@/test/fakeSupabaseAuth";
 
 function makeFile(name: string, sizeBytes: number, type = "image/png"): File {
   const bytes = new Uint8Array(sizeBytes);
@@ -10,18 +10,20 @@ function makeFile(name: string, sizeBytes: number, type = "image/png"): File {
 
 describe("useMediaAssets", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    fakeSupabase.__reset();
   });
 
-  it("starts with an empty library and the documented budget", () => {
+  it("starts loading, then resolves to an empty library against a fresh backend", async () => {
     const { result } = renderHook(() => useMediaAssets());
+    expect(result.current.status).toBe("loading");
+
+    await waitFor(() => expect(result.current.status).toBe("success"));
     expect(result.current.assets).toEqual([]);
-    expect(result.current.totalBytes).toBe(0);
-    expect(result.current.budgetBytes).toBe(MAX_TOTAL_MEDIA_BYTES);
   });
 
-  it("upload() reads a File into a data URL and re-renders with it in the same tab", async () => {
+  it("upload() stores the file and re-renders with it in the library", async () => {
     const { result } = renderHook(() => useMediaAssets());
+    await waitFor(() => expect(result.current.status).toBe("success"));
 
     await act(async () => {
       const outcome = await result.current.upload(makeFile("swatch.png", 100));
@@ -30,11 +32,12 @@ describe("useMediaAssets", () => {
 
     expect(result.current.assets).toHaveLength(1);
     expect(result.current.assets[0].name).toBe("swatch.png");
-    expect(result.current.assets[0].dataUrl.startsWith("data:image/png;base64,")).toBe(true);
+    expect(result.current.assets[0].url).toContain("swatch.png");
   });
 
   it("upload() rejects a file over the per-asset size limit without adding it", async () => {
     const { result } = renderHook(() => useMediaAssets());
+    await waitFor(() => expect(result.current.status).toBe("success"));
 
     await act(async () => {
       const outcome = await result.current.upload(makeFile("huge.png", MAX_ASSET_SOURCE_BYTES + 1));
@@ -46,14 +49,15 @@ describe("useMediaAssets", () => {
 
   it("remove() drops an asset and re-renders immediately", async () => {
     const { result } = renderHook(() => useMediaAssets());
+    await waitFor(() => expect(result.current.status).toBe("success"));
 
     await act(async () => {
       await result.current.upload(makeFile("swatch.png", 100));
     });
     const id = result.current.assets[0].id;
 
-    act(() => {
-      result.current.remove(id);
+    await act(async () => {
+      await result.current.remove(id);
     });
 
     expect(result.current.assets).toHaveLength(0);

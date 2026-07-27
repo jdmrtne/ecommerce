@@ -290,6 +290,31 @@ for the full write-up; `components/cart/CartDrawer.tsx`/`pages/Cart.tsx`
 have the identical underlying gap and weren't touched by this fix - see
 Known Issues.
 
+**Media (Backend-Integrated, requested directly, outside the numbered
+phase sequence).** Phase 24's Media Manager (`lib/mediaStore.ts`) stored
+every admin-uploaded image as a base64 data URL in `localStorage`, capped
+at 1MB per file and 4.5MB total across the whole site - a documented
+pre-backend stopgap, not a real limit the app needed. That store is now
+removed outright and replaced with a public Supabase Storage bucket
+(`media`, `supabase/schema.sql`) - publicly readable, admin-only insert/
+delete via the same `profiles.role = 'admin'` RLS pattern every other
+write-gated table uses. `lib/api/media.ts` is the thin client for it
+(`apiListMedia`/`apiUploadMedia`/`apiDeleteMedia`), and
+`hooks/useMediaAssets.ts` is now async (`loading`/`success`/`error`
+status, re-fetch after upload/remove) rather than a synchronous
+`localStorage` reader - same shape as `useProducts()`. `AssetPicker` and
+`MediaManager` were updated to render each asset's public URL
+(`asset.url`) instead of a `dataUrl`, and to show real loading/error
+states. **The 4.5MB total-storage cap is gone** - real object storage has
+no equivalent app-level budget; only a generous 10MB **per-file** guard
+remains client-side (`MAX_ASSET_SOURCE_BYTES`), to catch an obviously-
+wrong upload rather than enforce an architecture limit. No migration
+path exists for images uploaded under the old `localStorage` store - see
+`CHANGELOG.md`'s "Media (Backend-Integrated)" entry for full detail.
+Doesn't have a phase number and isn't tracked as a `ROADMAP.md` phase -
+same "already-shipped infrastructure alongside the numbered phases"
+treatment as the settings sync work above.
+
 ## Current Phase
 
 **Phase 28 complete.** **Phase 29 — Inventory — is next**, per

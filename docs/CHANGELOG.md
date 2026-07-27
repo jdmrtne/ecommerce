@@ -6,6 +6,57 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Media (Backend-Integrated)
+
+Requested directly (not the next `ROADMAP.md` phase, which remains 29 —
+Inventory): admin-uploaded images were still on Phase 24's stopgap store
+(`lib/mediaStore.ts`) — base64 data URLs in `localStorage`, capped at
+1MB per file and 4.5MB total across every uploaded image site-wide, a
+cap that had nothing to do with the app and existed only because
+`localStorage` itself is tiny. This phase moves uploads to a real,
+public Supabase Storage bucket, removing that total-storage cap
+entirely.
+
+### Added
+- A public `media` Storage bucket (`supabase/schema.sql`) — publicly
+  readable, insert/delete restricted to signed-in admins via
+  `storage.objects` RLS policies, same admin-role check every other
+  write-gated table already uses.
+- `lib/api/media.ts` — `apiListMedia`/`apiUploadMedia`/`apiDeleteMedia`
+  against that bucket, same `client` parameter/test-injection shape as
+  every other `lib/api/*` module.
+
+### Changed
+- `hooks/useMediaAssets.ts` rewritten as an async, backend-integrated
+  hook (`loading`/`success`/`error` status, re-fetch after
+  upload/remove) — same shape as `useProducts()`. `AssetPicker` and
+  `MediaManager` updated to match: images render from a public URL
+  (`asset.url`) instead of a `dataUrl`, and both show real loading/error
+  states instead of assuming synchronous local reads.
+- **The 4.5MB total-storage budget is gone** — real object storage has
+  no equivalent app-level cap to enforce. A generous 10MB **per-file**
+  guard remains client-side (`MAX_ASSET_SOURCE_BYTES` in
+  `useMediaAssets.ts`) purely to catch an obviously-wrong upload, not as
+  an architecture limit; Supabase's own project-level upload ceiling
+  (50MB by default, raisable in Dashboard → Storage → Settings) is the
+  real backstop above that.
+- `src/test/fakeSupabaseAuth.ts` gained an in-memory `.storage.from("media")`
+  fake alongside its existing table fakes, so every test that renders
+  `AssetPicker`/`MediaManager` (via the shared global `supabase` mock)
+  works with no network, same as the rest of the app.
+
+### Removed
+- `lib/mediaStore.ts` and its test file — fully superseded by
+  `lib/api/media.ts`. No data migration path from old
+  `localStorage`-stored images: any images an admin uploaded under
+  Phase 24's version need re-uploading once against the new bucket
+  (expected to be few, since Phase 24 was explicitly a pre-backend
+  stopgap for exactly this eventuality).
+
+### QA
+- `tsc -b`, `vite build`, `npx oxlint src`, and `npm test` (445/445
+  tests, 72 files) all pass clean.
+
 ## Bug Fix — Product Detail Image Missing / Added Full-Size Lightbox
 
 Reported against the deployed build: a product with a real uploaded

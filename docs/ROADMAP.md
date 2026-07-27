@@ -20,6 +20,13 @@ shipped.
   `MASTER_HANDOFF.md`'s Current Progress and `CHANGELOG.md` for what it
   does; it isn't a phase to complete or revert, just already-shipped
   infrastructure sitting alongside the numbered phases below.
+- **Note:** Media (Backend-Integrated) also exists outside this numbered
+  sequence — requested directly ahead of Phase 29, not built as one of
+  these phases. `lib/mediaStore.ts` (Phase 24's `localStorage` store) is
+  gone; media now goes through a real public Supabase Storage bucket
+  (`lib/api/media.ts`, `supabase/schema.sql`). See `CHANGELOG.md`'s
+  "Media (Backend-Integrated)" entry for full detail. Phase 29 below is
+  still the next *numbered* phase to pick up.
 
 ---
 

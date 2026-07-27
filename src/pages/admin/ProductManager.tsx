@@ -522,7 +522,7 @@ export function ProductManager() {
                 />
                 <AssetPicker
                   value={image || undefined}
-                  onSelect={(dataUrl) => updateListRow("images", index, dataUrl)}
+                  onSelect={(url) => updateListRow("images", index, url)}
                   label="Browse"
                 />
                 <button
@@ -540,7 +540,7 @@ export function ProductManager() {
                 Add image URL
               </Button>
               <AssetPicker
-                onSelect={(dataUrl) => setForm((prev) => ({ ...prev, images: [...prev.images, dataUrl] }))}
+                onSelect={(url) => setForm((prev) => ({ ...prev, images: [...prev.images, url] }))}
                 label="Add from library"
               />
             </div>
