@@ -139,3 +139,37 @@ create policy "A signed-in user can read their own orders"
 create policy "A signed-in user can insert their own orders"
   on orders for insert
   with check (auth.jwt() ->> 'email' = user_email);
+
+-- ---------------------------------------------------------------------
+-- site_settings: one row per admin-editable settings group (theme,
+-- store, homepage, ...). `value` is a jsonb blob matching that group's
+-- own *SettingsOverride shape exactly (see lib/themeSettingsStore.ts,
+-- lib/storeSettingsStore.ts, lib/homepageSettingsStore.ts) - a generic
+-- key/value settings table, not one table per feature, since every
+-- settings editor already shares the same override-over-defaults shape
+-- and previously lived in localStorage under a similarly-named key.
+--
+-- Moving these from localStorage to here is what makes an admin's save
+-- visible on *other* devices/browsers, not just the one that saved it -
+-- localStorage is inherently per-browser, so a theme/store/homepage
+-- change made on the admin's laptop never reached a visitor's phone.
+-- ---------------------------------------------------------------------
+create table if not exists site_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table site_settings enable row level security;
+
+create policy "Settings are readable by anyone"
+  on site_settings for select
+  using (true);
+
+create policy "Only admins can insert settings"
+  on site_settings for insert
+  with check (exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin'));
+
+create policy "Only admins can update settings"
+  on site_settings for update
+  using (exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin'));

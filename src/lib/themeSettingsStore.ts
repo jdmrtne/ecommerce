@@ -1,8 +1,13 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TemplatePreset } from "@/types/preset";
 import type { ThemeConfig } from "@/config/theme";
 import { storageKey } from "@/config/branding";
 import { ACTIVE_PRESET_ID, PRESETS } from "@/config/presets";
 import { classicPreset } from "@/config/presets/classic";
+import { apiGetSetting, apiSaveSetting } from "@/lib/api/settings";
+
+/** Row key this store uses in the `site_settings` table (see `lib/api/settings.ts`). */
+const REMOTE_KEY = "theme";
 
 /**
  * Phase 17 - Theme Editor. Same override-over-defaults pattern established
@@ -70,6 +75,14 @@ export function saveThemeSettingsOverride(partial: ThemeSettingsOverride): void 
   }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   notifyChange();
+  // Persist to Supabase in the background so other devices/browsers pick
+  // this up (see `loadThemeSettingsOverride()`) - the localStorage write
+  // above is what makes the save feel instant on *this* device; it
+  // doesn't wait on the network, and a failure here just means the sync
+  // hasn't gone out yet, not that the local save was lost.
+  void apiSaveSetting(REMOTE_KEY, next).catch((error) => {
+    console.error("Failed to sync theme settings to the server - saved locally on this device only for now.", error);
+  });
 }
 
 /** Clears the entire override, reverting back to `ACTIVE_PRESET_ID` and that preset's shipped theme. */
@@ -77,6 +90,27 @@ export function resetThemeSettingsOverride(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_KEY);
   notifyChange();
+}
+
+/**
+ * Pulls the latest saved override from Supabase - the cross-device
+ * source of truth - and writes it into the local cache, so this device
+ * picks up a theme change an admin made elsewhere. Called once at app
+ * boot (`lib/settingsSync.ts`); safe to call more than once, since it
+ * only ever overwrites the local cache with whatever the server
+ * currently has. If nothing has been saved server-side yet, this leaves
+ * the local cache untouched rather than clearing it.
+ */
+export async function loadThemeSettingsOverride(client?: SupabaseClient): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const remote = await apiGetSetting<ThemeSettingsOverride>(REMOTE_KEY, client);
+    if (remote === undefined) return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+    notifyChange();
+  } catch (error) {
+    console.error("Failed to load theme settings from the server - showing this device's last-known settings instead.", error);
+  }
 }
 
 /** Resolves which preset id is active: the saved override if it's still a valid preset key, else `ACTIVE_PRESET_ID`. */

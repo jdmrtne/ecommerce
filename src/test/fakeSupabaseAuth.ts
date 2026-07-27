@@ -58,6 +58,7 @@ export function createFakeAuthClient(): FakeAuthClient {
   let accounts = new Map<string, FakeAccount>(); // key: lowercase email
   let profiles = new Map<string, ProfileRow>(); // key: id
   let products = seedProducts();
+  let settings = new Map<string, unknown>(); // key: site_settings row key (theme/store/homepage)
   let session: FakeSession = null;
   let idSeq = 1;
   let listeners = new Set<AuthListener>();
@@ -138,10 +139,28 @@ export function createFakeAuthClient(): FakeAuthClient {
     };
   }
 
+  function settingsTable() {
+    return {
+      select: () => ({
+        eq: (field: string, value: string) => ({
+          maybeSingle: () => {
+            const row = field === "key" && settings.has(value) ? { key: value, value: settings.get(value) } : null;
+            return Promise.resolve({ data: row, error: null });
+          },
+        }),
+      }),
+      upsert: (row: { key: string; value: unknown }) => {
+        settings.set(row.key, row.value);
+        return Promise.resolve({ data: row, error: null });
+      },
+    };
+  }
+
   const client = {
     from: (table: string) => {
       if (table === "profiles") return profilesTable();
       if (table === "products") return productsTable();
+      if (table === "site_settings") return settingsTable();
       throw new Error(`FakeAuthClient: unsupported table "${table}"`);
     },
     auth: {
@@ -191,6 +210,7 @@ export function createFakeAuthClient(): FakeAuthClient {
       accounts = new Map();
       profiles = new Map();
       products = seedProducts();
+      settings = new Map();
       session = null;
       listeners = new Set();
     },

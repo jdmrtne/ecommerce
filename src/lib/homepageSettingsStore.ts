@@ -1,7 +1,12 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PageLayout, SectionInstance } from "@/types/layout";
 import { storageKey } from "@/config/branding";
 import type { HomeLayoutId, HomepageSectionKey } from "@/config/layouts/home";
 import { ACTIVE_HOME_LAYOUT, ALL_HOMEPAGE_SECTION_KEYS, HOME_LAYOUTS } from "@/config/layouts/home";
+import { apiGetSetting, apiSaveSetting } from "@/lib/api/settings";
+
+/** Row key this store uses in the `site_settings` table (see `lib/api/settings.ts`). */
+const REMOTE_KEY = "homepage";
 
 /**
  * Phase 18 - Homepage Editor. Same override-over-defaults pattern as
@@ -66,6 +71,9 @@ export function saveHomepageSettingsOverride(partial: HomepageSettingsOverride):
   }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   notifyChange();
+  void apiSaveSetting(REMOTE_KEY, next).catch((error) => {
+    console.error("Failed to sync homepage settings to the server - saved locally on this device only for now.", error);
+  });
 }
 
 /** Clears the entire override, reverting back to `ACTIVE_HOME_LAYOUT` and its shipped section list. */
@@ -73,6 +81,23 @@ export function resetHomepageSettingsOverride(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_KEY);
   notifyChange();
+}
+
+/**
+ * Pulls the latest saved override from Supabase into the local cache -
+ * see `themeSettingsStore.ts`'s `loadThemeSettingsOverride()` for the
+ * full rationale. Called once at app boot (`lib/settingsSync.ts`).
+ */
+export async function loadHomepageSettingsOverride(client?: SupabaseClient): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const remote = await apiGetSetting<HomepageSettingsOverride>(REMOTE_KEY, client);
+    if (remote === undefined) return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+    notifyChange();
+  } catch (error) {
+    console.error("Failed to load homepage settings from the server - showing this device's last-known settings instead.", error);
+  }
 }
 
 /** Resolves which layout id is active: the saved override if it's still a valid layout key, else `ACTIVE_HOME_LAYOUT`. */

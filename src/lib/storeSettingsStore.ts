@@ -1,7 +1,12 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { branding as BRANDING_DEFAULTS, storageKey } from "@/config/branding";
 import type { BrandingConfig } from "@/config/branding";
 import { business as BUSINESS_DEFAULTS } from "@/config/business";
 import type { BusinessConfig, BusinessHours, SocialLinks } from "@/config/business";
+import { apiGetSetting, apiSaveSetting } from "@/lib/api/settings";
+
+/** Row key this store uses in the `site_settings` table (see `lib/api/settings.ts`). */
+const REMOTE_KEY = "store";
 
 /**
  * Phase 16 - Store Settings. The first admin editor, and the one that
@@ -73,6 +78,9 @@ export function saveStoreSettingsOverride(partial: StoreSettingsOverride): void 
   const next: StoreSettingsOverride = { ...getStoreSettingsOverride(), ...partial };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   notifyChange();
+  void apiSaveSetting(REMOTE_KEY, next).catch((error) => {
+    console.error("Failed to sync store settings to the server - saved locally on this device only for now.", error);
+  });
 }
 
 /** Clears the entire override, reverting every field back to its static default. */
@@ -80,6 +88,23 @@ export function resetStoreSettingsOverride(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_KEY);
   notifyChange();
+}
+
+/**
+ * Pulls the latest saved override from Supabase into the local cache -
+ * see `themeSettingsStore.ts`'s `loadThemeSettingsOverride()` for the
+ * full rationale. Called once at app boot (`lib/settingsSync.ts`).
+ */
+export async function loadStoreSettingsOverride(client?: SupabaseClient): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const remote = await apiGetSetting<StoreSettingsOverride>(REMOTE_KEY, client);
+    if (remote === undefined) return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+    notifyChange();
+  } catch (error) {
+    console.error("Failed to load store settings from the server - showing this device's last-known settings instead.", error);
+  }
 }
 
 /** Resolves the live branding config: saved override fields, falling back to the static default. */
