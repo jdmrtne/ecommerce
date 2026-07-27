@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  These four tags (favicon, description, theme-color, title) are synced
+  from src/config/brandingMeta.ts by scripts/sync-index-html.mjs, which
+  runs automatically as the first step of `npm run build` (see
+  package.json). HTML <head> tags render before React mounts, so they
+  can't read the JS config at runtime - that script is what keeps them
+  correct for non-JS crawlers and pre-hydration scrapers (Phase 13).
+  Don't hand-edit the four tags below directly; edit brandingMeta.ts and
+  rebuild (or rerun `node scripts/sync-index-html.mjs`) instead.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Describe your business here." />
+    <meta name="theme-color" content="#fbf6ee" />
+    <title>My Business | Your business tagline</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

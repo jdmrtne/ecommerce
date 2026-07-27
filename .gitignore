@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Env files - never commit real Supabase credentials.
+# (.env.example is intentionally NOT ignored - it's the template.)
+.env
+.env.local
+.env.*.local
+
+# Editor/OS
+.DS_Store
+*.local
+
+# Test/build artifacts
+coverage/
+node_modules/.tmp/
+*.tsbuildinfo

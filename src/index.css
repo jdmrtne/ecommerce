@@ -1,0 +1,191 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,400..600&family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Lato:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Jost:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+/* ==========================================================================
+   TEMPLATE DESIGN TOKENS
+   Default template palette: warm cream base, beige surfaces, ink-brown
+   text, with a blue/pink accent pair. Edit src/config/theme.ts to
+   re-theme the site at runtime, or edit the values below to change the
+   compiled default (used before JS applies any runtime override).
+   ========================================================================== */
+
+@theme {
+  /* -- Brand palette --------------------------------------------------- */
+  --color-cream: #fbf6ee;
+  --color-surface: #fffdf9;
+  --color-beige: #efe3d2;
+  --color-beige-dark: #e2d2b8;
+  --color-ink: #4a3628;
+  --color-ink-soft: #8a7565;
+
+  --color-denim: #4a6fa5;
+  --color-denim-deep: #33507a;
+  --color-denim-tint: #e4ebf4;
+
+  --color-bloom: #e8639e;
+  --color-bloom-deep: #c94781;
+  --color-bloom-tint: #fbe6f0;
+
+  --color-success: #6b9080;
+  --color-error: #c0563f;
+
+  /* -- Typography -------------------------------------------------------- */
+  --font-display: "Fraunces", "Iowan Old Style", serif;
+  --font-body: "Manrope", "Segoe UI", sans-serif;
+
+  /* -- Radius: rounded, handmade, never sharp ---------------------------- */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.9rem;
+  --radius-lg: 1.5rem;
+  --radius-xl: 2.25rem;
+  --radius-full: 999px;
+
+  /* -- Shadows: soft, diffuse, no hard drop shadows ----------------------- */
+  --shadow-soft: 0 2px 10px -2px rgb(74 54 40 / 0.08), 0 8px 24px -8px rgb(74 54 40 / 0.10);
+  --shadow-lift: 0 4px 16px -4px rgb(74 54 40 / 0.12), 0 16px 40px -12px rgb(74 54 40 / 0.16);
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-float: float 5s ease-in-out infinite;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes shimmer {
+    0% {
+      background-position: -300px 0;
+    }
+    100% {
+      background-position: 300px 0;
+    }
+  }
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-2deg);
+    }
+    50% {
+      transform: translateY(-14px) rotate(2deg);
+    }
+  }
+}
+
+/* ==========================================================================
+   TEMPLATE PRESET STYLE HOOKS (Phase 12)
+   `config/theme.ts#applyTheme()` sets `data-button-style`/`data-card-style`
+   on <html> from the active preset (`config/presets/`). These attribute
+   selectors are the "future CSS hooks" `applyTheme()` was already writing
+   the data attributes for since Phase 1 - Button/Card now consume the
+   resulting --btn-radius/--card-* variables via Tailwind arbitrary-value
+   classes instead of hardcoding a single shape.
+   ========================================================================== */
+
+:root {
+  --btn-radius: var(--radius-full);
+  --card-radius: var(--radius-lg);
+  --card-shadow: var(--shadow-soft);
+  --card-border-color: transparent;
+}
+
+html[data-button-style="pill"] {
+  --btn-radius: var(--radius-full);
+}
+html[data-button-style="rounded"] {
+  --btn-radius: var(--radius-lg);
+}
+html[data-button-style="square"] {
+  --btn-radius: var(--radius-sm);
+}
+
+html[data-card-style="soft"] {
+  --card-radius: var(--radius-lg);
+  --card-shadow: var(--shadow-soft);
+  --card-border-color: transparent;
+}
+html[data-card-style="flat"] {
+  --card-radius: var(--radius-md);
+  --card-shadow: none;
+  --card-border-color: transparent;
+}
+html[data-card-style="outlined"] {
+  --card-radius: var(--radius-md);
+  --card-shadow: none;
+  --card-border-color: var(--color-ink);
+}
+
+/* -- Dark mode overrides --------------------------------------------------
+   Applied via a `.dark` class on <html>, toggled by useTheme(). Keeps the
+   same warm register instead of flipping to a cold neutral gray dark mode.
+---------------------------------------------------------------------------- */
+.dark {
+  --color-cream: #211812;
+  --color-surface: #2a1f18;
+  --color-beige: #382a20;
+  --color-beige-dark: #46351f;
+  --color-ink: #f3e8db;
+  --color-ink-soft: #b6a291;
+
+  --color-denim: #8fb0e0;
+  --color-denim-deep: #b7cdf0;
+  --color-denim-tint: #2c3b52;
+
+  --color-bloom: #f296c1;
+  --color-bloom-deep: #f7b8d7;
+  --color-bloom-tint: #4a2c3a;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-beige);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-cream);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-denim);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background-color: var(--color-bloom-tint);
+    color: var(--color-ink);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
