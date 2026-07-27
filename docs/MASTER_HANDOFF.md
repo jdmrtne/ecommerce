@@ -276,6 +276,20 @@ added in the deployed version, needed for client-side routing to work
 correctly on Vercel's static hosting - unrelated to the settings sync
 work, just a deployment config file with nothing to merge conflict with.
 
+**Bug fix: product detail image was missing.** `pages/ProductDetail.tsx`
+never rendered `product.images?.[0]` at all - only `CraftIcon`,
+regardless of whether the product had a real image - unlike
+`ProductCard.tsx`'s grid tile, which always handled this correctly. A
+product with an admin-uploaded photo showed up fine in the Shop grid but
+lost its image entirely on its own detail page. Fixed to match
+`ProductCard`'s fallback logic, and the detail-page image is now
+clickable, opening a lightbox (`components/ui/Modal.tsx`) that shows the
+same photo uncropped at its true aspect ratio - the page itself still
+crops to a square for grid-tile visual consistency. See `CHANGELOG.md`
+for the full write-up; `components/cart/CartDrawer.tsx`/`pages/Cart.tsx`
+have the identical underlying gap and weren't touched by this fix - see
+Known Issues.
+
 ## Current Phase
 
 **Phase 28 complete.** **Phase 29 — Inventory — is next**, per
@@ -1079,6 +1093,14 @@ currently scheduled as its own phase.
   as part of this merge (removing unreferenced files from a different
   session's work wasn't this merge's purpose) - safe to delete in a
   future cleanup pass if desired.
+- **`CartDrawer.tsx`/`Cart.tsx` never show a cart line item's real
+  product image**, always rendering `CraftIcon` regardless of whether
+  `line.product.images?.[0]` exists - the same gap
+  `pages/ProductDetail.tsx` had until its bug fix (see Current Progress/
+  `CHANGELOG.md`), just not addressed here since it was reported and
+  fixed specifically against the product detail page. Would need the
+  same `product.images?.[0] ? <img> : <CraftIcon>` treatment
+  `ProductCard.tsx` already uses if closed later.
 
 ## Security Notes
 

@@ -54,4 +54,43 @@ describe("ProductDetail", () => {
     await user.click(screen.getByRole("button", { name: /retry/i }));
     await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
   });
+
+  it("shows the real product image when one exists, and opens it uncropped in a lightbox on click", async () => {
+    await fakeSupabase.from("products").upsert({
+      id: FIRST_PRODUCT.id,
+      name: FIRST_PRODUCT.name,
+      category: FIRST_PRODUCT.category,
+      price: FIRST_PRODUCT.price,
+      rating: FIRST_PRODUCT.rating,
+      tag: FIRST_PRODUCT.tag ?? null,
+      created_at: FIRST_PRODUCT.createdAt,
+      sales_rank: FIRST_PRODUCT.salesRank ?? null,
+      stock: null,
+      description: FIRST_PRODUCT.description,
+      details: FIRST_PRODUCT.details,
+      images: ["https://example.com/product.jpg"],
+      variants: null,
+      tags: null,
+    });
+
+    const user = userEvent.setup();
+    renderAt(FIRST_PRODUCT.id);
+    await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
+
+    const thumbnail = screen.getByRole("button", { name: `View full-size image of ${FIRST_PRODUCT.name}` });
+    expect(thumbnail.querySelector("img")).toHaveAttribute("src", "https://example.com/product.jpg");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(thumbnail);
+    const dialog = await screen.findByRole("dialog");
+    const fullImage = dialog.querySelector("img");
+    expect(fullImage).toHaveAttribute("src", "https://example.com/product.jpg");
+    expect(fullImage).toHaveClass("object-contain");
+  });
+
+  it("falls back to the CraftIcon placeholder for a product with no image", async () => {
+    renderAt(FIRST_PRODUCT.id);
+    await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
+    expect(screen.queryByRole("button", { name: `View full-size image of ${FIRST_PRODUCT.name}` })).not.toBeInTheDocument();
+  });
 });

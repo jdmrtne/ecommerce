@@ -6,6 +6,41 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Bug Fix — Product Detail Image Missing / Added Full-Size Lightbox
+
+Reported against the deployed build: a product with a real uploaded
+image (e.g. an admin-added photo, as opposed to the seed catalog's
+image-less placeholders) showed correctly in the Shop grid and search
+results (`ProductCard.tsx` already handled this), but the image
+disappeared entirely on that same product's detail page, replaced by
+the generic `CraftIcon` illustration - `ProductDetail.tsx` never
+checked `product.images?.[0]` at all, unlike `ProductCard`.
+
+### Fixed
+- `pages/ProductDetail.tsx` now renders the real image when
+  `product.images?.[0]` exists, falling back to `CraftIcon` only when a
+  product genuinely has no image - matching `ProductCard.tsx`'s existing
+  behavior.
+
+### Added
+- The detail-page image is now clickable, opening a lightbox (reusing
+  the existing `components/ui/Modal.tsx`) that shows the same image
+  uncropped at its true aspect ratio (`object-contain`), rather than the
+  square-cropped (`object-cover`) framing used for grid-tile consistency
+  on the page itself. A "View full size" hint with an `Expand` icon
+  appears on hover/focus.
+- Tests in `pages/ProductDetail.test.tsx` covering: the real image
+  rendering when present, the lightbox opening on click with the
+  uncropped image, and the `CraftIcon` fallback for an image-less
+  product.
+
+### Known Issues (related, not fixed here)
+- `components/cart/CartDrawer.tsx` and `pages/Cart.tsx` have the same
+  underlying gap - both always render `CraftIcon` for a cart line item,
+  never `line.product.images?.[0]`, even when a real image exists. Not
+  in scope for this fix (which was reported specifically against the
+  product detail page); worth the same treatment in a future pass.
+
 ## Merge — Deployed Build (Settings Sync)
 
 This entry documents a merge between this project's phase-tracked

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ChevronRight, Check, Star } from "lucide-react";
+import { ChevronRight, Check, Expand, Star } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { CraftIcon } from "@/components/ui/CraftIcon";
+import { Modal } from "@/components/ui/Modal";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { QuantityStepper } from "@/components/ui/QuantityStepper";
 import { WishlistButton } from "@/components/ui/WishlistButton";
@@ -31,6 +32,7 @@ export function ProductDetail() {
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
+  const [isImageOpen, setIsImageOpen] = useState(false);
 
   // Falls back to the not-found copy's title until the product loads, so
   // the tab title is never blank/stale mid-fetch.
@@ -121,13 +123,41 @@ export function ProductDetail() {
       </nav>
 
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
-        {/* Image / illustration */}
+        {/*
+         * Image / illustration. Renders the real product image when one
+         * exists (bug fix: this previously always rendered the CraftIcon
+         * placeholder even for a product with a real photo, unlike
+         * ProductCard's grid tile, which already handled this correctly).
+         * Cropped to a square here to match the grid tile's framing, but
+         * clicking it opens the same image uncropped, at its true aspect
+         * ratio, in a lightbox - `object-contain` there instead of
+         * `object-cover`.
+         */}
         <div className="relative aspect-square w-full rounded-lg bg-beige/50">
-          <CraftIcon
-            category={product.category}
-            className="h-full w-full p-16"
-            iconClassName="h-20 w-20"
-          />
+          {product.images?.[0] ? (
+            <button
+              type="button"
+              onClick={() => setIsImageOpen(true)}
+              className="group block h-full w-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-denim"
+              aria-label={`View full-size image of ${product.name}`}
+            >
+              <img
+                src={product.images[0]}
+                alt={product.name}
+                className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+              />
+              <span className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-ink/60 px-3 py-1.5 text-xs font-semibold text-surface opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+                <Expand size={14} aria-hidden="true" />
+                View full size
+              </span>
+            </button>
+          ) : (
+            <CraftIcon
+              category={product.category}
+              className="h-full w-full p-16"
+              iconClassName="h-20 w-20"
+            />
+          )}
           {product.tag && (
             <span className="absolute right-4 top-4 rounded-full bg-denim px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-surface shadow-soft">
               {product.tag}
@@ -201,6 +231,16 @@ export function ProductDetail() {
             ))}
           </div>
         </div>
+      )}
+
+      {product.images?.[0] && (
+        <Modal isOpen={isImageOpen} onClose={() => setIsImageOpen(false)} title={product.name} size="lg">
+          <img
+            src={product.images[0]}
+            alt={product.name}
+            className="mx-auto max-h-[75vh] w-auto max-w-full rounded-md object-contain"
+          />
+        </Modal>
       )}
     </div>
   );
