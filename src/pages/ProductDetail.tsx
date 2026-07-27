@@ -4,7 +4,7 @@ import { ChevronRight, Check, Expand, Star } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { CraftIcon } from "@/components/ui/CraftIcon";
-import { Modal } from "@/components/ui/Modal";
+import { Lightbox } from "@/components/ui/Lightbox";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { QuantityStepper } from "@/components/ui/QuantityStepper";
 import { WishlistButton } from "@/components/ui/WishlistButton";
@@ -33,6 +33,7 @@ export function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
   const [isImageOpen, setIsImageOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   // Falls back to the not-found copy's title until the product loads, so
   // the tab title is never blank/stale mid-fetch.
@@ -137,7 +138,10 @@ export function ProductDetail() {
           {product.images?.[0] ? (
             <button
               type="button"
-              onClick={() => setIsImageOpen(true)}
+              onClick={() => {
+                setLightboxIndex(0);
+                setIsImageOpen(true);
+              }}
               className="group block h-full w-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-denim"
               aria-label={`View full-size image of ${product.name}`}
             >
@@ -233,14 +237,15 @@ export function ProductDetail() {
         </div>
       )}
 
-      {product.images?.[0] && (
-        <Modal isOpen={isImageOpen} onClose={() => setIsImageOpen(false)} title={product.name} size="lg">
-          <img
-            src={product.images[0]}
-            alt={product.name}
-            className="mx-auto max-h-[75vh] w-auto max-w-full rounded-md object-contain"
-          />
-        </Modal>
+      {product.images && product.images.length > 0 && (
+        <Lightbox
+          isOpen={isImageOpen}
+          onClose={() => setIsImageOpen(false)}
+          images={product.images}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          alt={product.name}
+        />
       )}
     </div>
   );
