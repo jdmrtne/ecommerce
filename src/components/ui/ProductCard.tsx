@@ -28,12 +28,16 @@ export function ProductCard({ product, rank, className }: ProductCardProps) {
         padding="none"
         className="flex h-full flex-col overflow-hidden group-focus-visible:ring-2 group-focus-visible:ring-denim"
       >
-        <div className="relative aspect-square w-full bg-beige/50">
+        <div
+          className="relative w-full overflow-hidden bg-beige/50"
+          style={{ aspectRatio: "1 / 1" }}
+        >
           {product.images?.[0] ? (
             <img
               src={product.images[0]}
               alt={product.name}
-              className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+              className="absolute inset-0 block h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+              style={{ objectFit: "cover", objectPosition: "center" }}
             />
           ) : (
             <CraftIcon
