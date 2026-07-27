@@ -31,8 +31,8 @@ function validateContact(data: { name: string; email: string; message: string })
 }
 
 /**
- * No backend exists yet, so this simulates the request - same pattern as
- * Newsletter's subscribe() and Checkout's placeOrder().
+ * No backend exists yet for the contact form, so this simulates the
+ * request - same fake-latency pattern Newsletter's subscribe() uses.
  */
 async function sendMessage(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 900));

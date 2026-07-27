@@ -26,23 +26,30 @@ export function validateCheckout(data: CheckoutFormData): CheckoutErrors {
   return errors;
 }
 
-/** Mock order number - no real backend exists, so this stands in for a generated id. */
+/**
+ * Order numbers are still generated client-side rather than by the
+ * database - `orders.order_number` is a plain text primary key (see
+ * `supabase/schema.sql`), not a server-assigned identity/sequence, so
+ * there's nothing on the backend side to wait on for this value.
+ */
 function generateOrderNumber(): string {
   const rand = Math.floor(100000 + Math.random() * 900000);
   return `CV-${rand}`;
 }
 
 /**
- * Simulates placing an order - same setTimeout-wrapped-promise pattern as
- * fetchProducts()/fetchProductById() (Shop/ProductDetail) and subscribe()
- * (Newsletter). Shipping fee/threshold logic lives here so Cart, Checkout,
- * and the confirmation page can't drift out of sync on the number shown.
+ * Builds the `Order` object Checkout submits - synchronous, since it's
+ * pure data construction with no network involved (that part is now
+ * `lib/api/orders.ts`'s `apiSaveOrderForUser()`, called separately by
+ * Checkout once this has run). Phase 28: this replaces the old
+ * `placeOrder()`, which wrapped the exact same construction in a fake
+ * `setTimeout`-based Promise to simulate network latency - real latency
+ * now comes from the real API call for signed-in checkouts, so faking it
+ * here would just double it up. Shipping fee/threshold logic lives here
+ * so Cart, Checkout, and the confirmation page can't drift out of sync
+ * on the number shown.
  */
-export function placeOrder(
-  shipping: CheckoutFormData,
-  lines: CartLine[],
-  subtotal: number,
-): Promise<Order> {
+export function buildOrder(shipping: CheckoutFormData, lines: CartLine[], subtotal: number): Order {
   const orderLines: OrderLine[] = lines.map((line) => ({
     productId: line.productId,
     name: line.product.name,
@@ -51,17 +58,13 @@ export function placeOrder(
   }));
   const shippingFee = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
 
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        orderNumber: generateOrderNumber(),
-        placedAt: new Date().toISOString(),
-        lines: orderLines,
-        subtotal,
-        shippingFee,
-        total: subtotal + shippingFee,
-        shipping,
-      });
-    }, 900);
-  });
+  return {
+    orderNumber: generateOrderNumber(),
+    placedAt: new Date().toISOString(),
+    lines: orderLines,
+    subtotal,
+    shippingFee,
+    total: subtotal + shippingFee,
+    shipping,
+  };
 }

@@ -5,7 +5,19 @@ function ordersKey(email: string) {
   return storageKey(`orders:${email.toLowerCase()}`);
 }
 
-/** Reads a user's saved order history, most recent first. */
+/**
+ * Reads a user's saved order history, most recent first, from this
+ * pre-backend `localStorage` store.
+ *
+ * Deprecated as of Phase 28 (Orders, Backend-Integrated): Checkout and
+ * Account now read/write real orders via `lib/api/orders.ts` against the
+ * backend instead of this file. The only remaining first-party caller is
+ * `lib/adminStats.ts`'s dashboard order count, which - like its product
+ * count after Phase 27 and its customer count after Phase 26 - was
+ * intentionally left on its pre-backend source rather than migrated,
+ * since the admin dashboard itself is out of this phase's scope. See
+ * `MASTER_HANDOFF.md` Known Issues.
+ */
 export function getOrdersForUser(email: string): Order[] {
   try {
     const stored = window.localStorage.getItem(ordersKey(email));
@@ -18,10 +30,14 @@ export function getOrdersForUser(email: string): Order[] {
 }
 
 /**
- * Appends a placed order to a user's history. Called from Checkout right
- * after placeOrder() succeeds, only when someone is logged in - guest
- * orders still work (the receipt shows on /order-confirmation), they just
- * aren't saved anywhere to look up again later.
+ * Appends a placed order to a user's history in this pre-backend
+ * `localStorage` store.
+ *
+ * Deprecated as of Phase 28 - Checkout no longer calls this (it writes
+ * to the real `orders` table via `apiSaveOrderForUser()` instead). Kept
+ * only so `lib/adminStats.ts`'s deprecated order count (see
+ * `getOrdersForUser()` above) has data to read in tests that exercise
+ * it directly.
  */
 export function saveOrderForUser(email: string, order: Order): void {
   const existing = getOrdersForUser(email);

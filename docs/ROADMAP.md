@@ -10,9 +10,16 @@ shipped.
 
 ## Status
 
-- **Last completed phase:** 27 — Products (Backend-Integrated)
-- **Next phase to start:** 28 — Orders (Backend-Integrated)
+- **Last completed phase:** 28 — Orders (Backend-Integrated)
+- **Next phase to start:** 29 — Inventory
 - **Rule:** complete ONE phase per session, then stop and wait for approval.
+- **Note:** a cross-device settings sync feature (`site_settings` table,
+  `lib/api/settings.ts`, `lib/settingsSync.ts`) exists in the codebase
+  outside this numbered sequence — it was merged in from a deployed
+  build rather than built as one of these phases. See
+  `MASTER_HANDOFF.md`'s Current Progress and `CHANGELOG.md` for what it
+  does; it isn't a phase to complete or revert, just already-shipped
+  infrastructure sitting alongside the numbered phases below.
 
 ---
 
@@ -49,6 +56,8 @@ Full detail lives in `MASTER_HANDOFF.md` → "Completed Phases". Summary:
 | 24 | Media Manager |
 | 25 | Backend Integration |
 | 26 | Authentication (Backend-Integrated) |
+| 27 | Products (Backend-Integrated) |
+| 28 | Orders (Backend-Integrated) |
 
 ---
 
@@ -523,7 +532,7 @@ the real backend.
 
 ---
 
-### Phase 28 — Orders (Backend-Integrated)
+### Phase 28 — Orders (Backend-Integrated) *(COMPLETE)*
 
 **Objective:** Real order persistence, replacing the simulated checkout
 submission.
@@ -538,6 +547,58 @@ submission.
 
 **Completion Criteria:**
 - Build/lint/tests pass.
+
+**Outcome:**
+- `lib/checkout.ts`'s `placeOrder()` (a fake `setTimeout`-wrapped
+  simulation) is replaced with a synchronous `buildOrder()` - real
+  network latency now comes from the real API call for a signed-in
+  checkout instead of being faked here.
+- `pages/Checkout.tsx` writes the built order to the real `orders` table
+  via `lib/api/orders.ts`'s `apiSaveOrderForUser()` (Phase 25 plumbing,
+  not previously called from the UI) whenever someone's signed in, with
+  its own inline error handling on a failed write (cart and form stay
+  intact so the shopper can retry; no navigation happens until the write
+  succeeds) - the same per-action try/catch-with-inline-error shape
+  `ProductManager.tsx` (Phase 27) established for a real mutating call.
+- `hooks/useOrders.ts` is a new reactive hook (loading/success/error,
+  `reload()` for a retry action) wrapping `apiGetOrdersForUser()`,
+  mirroring `useProducts.ts`'s shape for an async list read.
+- `pages/Account.tsx`'s order history now fetches through `useOrders()`
+  instead of a direct, synchronous `getOrdersForUser()` localStorage
+  read - it has its own loading skeleton and `ErrorState`-with-retry
+  (`ERROR_STATES.orders`, new in `content/states.ts`).
+- `pages/OrderConfirmation.tsx` is structurally unchanged (still a
+  one-time receipt read from router location state, not re-fetched) -
+  for a signed-in checkout the object it renders is now the exact order
+  that was just written to the real backend, since Checkout only
+  navigates here after that write succeeds.
+- `src/test/fakeSupabaseAuth.ts` (the shared in-memory backend fake every
+  test gets) now also serves an `orders` table, with no seed data (an
+  order only ever exists once a real checkout creates one).
+- New tests: `pages/Checkout.test.tsx` and `pages/Account.test.tsx`
+  (neither existed before this phase), covering a signed-in order write
+  reaching the backend, an inline error on a failed write, a signed-in
+  order-history loading/empty/error/success cycle, and confirming a
+  guest checkout does *not* write to the backend. `lib/checkout.test.ts`
+  rewritten for the new synchronous `buildOrder()` (no more fake-timer
+  plumbing).
+
+**Known Issues carried forward:**
+- **Guest checkout still doesn't persist an order anywhere.** The
+  `orders` table's RLS insert policy (`supabase/schema.sql`, unchanged
+  this phase) only allows a signed-in user to insert a row for their own
+  email, so there's nowhere for an unauthenticated write to go - this is
+  the same guest limitation the pre-Phase-28 `localStorage` version had
+  (see `MASTER_HANDOFF.md` Known Issues, pre-existing), just now
+  enforced by the database instead of by `Checkout.tsx` choosing not to
+  call a local write. Not addressed by this phase's scope; would need a
+  deliberate decision (e.g. a relaxed RLS policy for anonymous inserts,
+  or a different guest-order identifier scheme) if closed later.
+- **`lib/adminStats.ts`'s dashboard order count still reads the
+  deprecated `lib/orders.ts` `localStorage` store**, not the real
+  backend - this phase's scope was Checkout/Account only, not the admin
+  dashboard. Same pattern Phase 27 left for the product/category counts;
+  tracked for whichever future phase migrates the dashboard.
 
 ---
 

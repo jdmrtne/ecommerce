@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   FREE_SHIPPING_THRESHOLD,
   SHIPPING_FEE,
-  placeOrder,
+  buildOrder,
   validateCheckout,
 } from "@/lib/checkout";
 import type { CartLine } from "@/context/CartContext";
@@ -60,21 +60,11 @@ describe("validateCheckout", () => {
   });
 });
 
-describe("placeOrder", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("charges the standard shipping fee below the free-shipping threshold", async () => {
+describe("buildOrder", () => {
+  it("charges the standard shipping fee below the free-shipping threshold", () => {
     const lines: CartLine[] = [{ productId: "p1", quantity: 2, product: product({ price: 250 }) }];
     const subtotal = 500;
-    const promise = placeOrder(VALID_SHIPPING, lines, subtotal);
-    await vi.runAllTimersAsync();
-    const order = await promise;
+    const order = buildOrder(VALID_SHIPPING, lines, subtotal);
 
     expect(order.subtotal).toBe(500);
     expect(order.shippingFee).toBe(SHIPPING_FEE);
@@ -85,22 +75,25 @@ describe("placeOrder", () => {
     ]);
   });
 
-  it("waives shipping at or above the free-shipping threshold", async () => {
+  it("waives shipping at or above the free-shipping threshold", () => {
     const lines: CartLine[] = [
       { productId: "p1", quantity: 1, product: product({ price: FREE_SHIPPING_THRESHOLD }) },
     ];
-    const promise = placeOrder(VALID_SHIPPING, lines, FREE_SHIPPING_THRESHOLD);
-    await vi.runAllTimersAsync();
-    const order = await promise;
+    const order = buildOrder(VALID_SHIPPING, lines, FREE_SHIPPING_THRESHOLD);
 
     expect(order.shippingFee).toBe(0);
     expect(order.total).toBe(FREE_SHIPPING_THRESHOLD);
   });
 
-  it("carries the shipping details through to the order", async () => {
-    const promise = placeOrder(VALID_SHIPPING, [], 0);
-    await vi.runAllTimersAsync();
-    const order = await promise;
+  it("carries the shipping details through to the order", () => {
+    const order = buildOrder(VALID_SHIPPING, [], 0);
     expect(order.shipping).toEqual(VALID_SHIPPING);
+  });
+
+  it("generates a unique-looking order number each call", () => {
+    const a = buildOrder(VALID_SHIPPING, [], 0);
+    const b = buildOrder(VALID_SHIPPING, [], 0);
+    expect(a.orderNumber).toMatch(/^CV-\d{6}$/);
+    expect(b.orderNumber).toMatch(/^CV-\d{6}$/);
   });
 });

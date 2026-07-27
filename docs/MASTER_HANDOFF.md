@@ -215,10 +215,71 @@ project with the existing 24-product catalog. Category Manager and
 Cart/Wishlist/Collections are still out of scope, reading the old static
 catalog/a client-side cache respectively - see Known Issues.
 
+Phase 28 moved order placement onto the real backend too: `Checkout.tsx`
+now writes a signed-in shopper's order to the real `orders` table via
+`lib/api/orders.ts`'s `apiSaveOrderForUser()` (Phase 25 plumbing, wired
+into the UI for the first time here) instead of the old fake-latency
+`placeOrder()` + `localStorage`-backed `saveOrderForUser()`. Order
+construction itself (`lib/checkout.ts`'s new `buildOrder()`) is now
+synchronous - there's no reason to fake network latency once a real
+network call follows it. A failed write shows an inline error and
+leaves the cart/form untouched so the shopper can retry, the same
+per-action error-handling shape Phase 27's Product Manager established.
+`Account.tsx`'s order history now fetches live from the backend via the
+new `hooks/useOrders.ts` (mirroring `useProducts.ts`'s loading/success/
+error shape), with its own skeleton and retry-capable error state, in
+place of the old direct, synchronous `localStorage` read.
+`OrderConfirmation.tsx` didn't need a structural change - it was always
+a one-time receipt read from router state, not re-fetched - but for a
+signed-in checkout that receipt now reflects a record that's genuinely
+in the database, since Checkout only navigates there after the write
+succeeds. Guest checkout is functionally unchanged: the `orders` table's
+RLS insert policy only allows a signed-in user to write their own row,
+so an unauthenticated order still isn't persisted anywhere, same
+limitation as before this phase (see Known Issues) - just now enforced
+by the database rather than by `Checkout.tsx` choosing not to call a
+local write. The admin dashboard's order count is also unchanged/out of
+scope, same pattern Phase 27 left for product/category counts.
+
+**Settings sync (merged in from the deployed build, outside the numbered
+phase sequence).** The version of this project the user deployed to
+Vercel had, independently of the `ROADMAP.md` phase sequence tracked
+here, already added cross-device sync for the three `localStorage`-
+override settings stores (`lib/themeSettingsStore.ts`,
+`lib/storeSettingsStore.ts`, `lib/homepageSettingsStore.ts`) against a
+new generic `site_settings` key/value table (`supabase/schema.sql`) - one
+row per settings group (`"theme"`/`"store"`/`"homepage"`), each holding
+that group's own override shape as a `jsonb` blob, rather than one table
+per feature. `lib/api/settings.ts` is the thin `apiGetSetting()`/
+`apiSaveSetting()` client for it, and `lib/settingsSync.ts`'s
+`syncSettingsFromServer()` is called once at boot from `main.tsx`, right
+after the existing synchronous `applyPreset(resolveActivePreset())` call
+(which still runs first, so there's no flash-of-wrong-style on load) -
+it fires off all three loads in parallel and lets each store's own
+change-event mechanism re-render whatever's already mounted once the
+network responds, no loading state or prop drilling needed at the call
+site. This is what makes an admin's Theme/Store Settings/Homepage Editor
+save visible on a different device or browser, not just the one that
+saved it - previously, every one of those stores was `localStorage`-only
+and therefore permanently per-browser. `src/test/fakeSupabaseAuth.ts`
+gained a `site_settings` table alongside `products`/`orders` to back
+this in tests. This work wasn't documented anywhere in the version it
+arrived in (no `ROADMAP.md` phase, no `CHANGELOG.md` entry) - it's
+recorded here now so the docs match what's actually deployed. It doesn't
+have a phase number and isn't tracked as a `ROADMAP.md` phase; treat it
+as already-shipped infrastructure sitting alongside the numbered phases,
+the same way Phase 25's Backend Integration groundwork sits underneath
+Phases 26–28.
+
+`vercel.json` (a plain SPA rewrite: all paths to `/index.html`) was also
+added in the deployed version, needed for client-side routing to work
+correctly on Vercel's static hosting - unrelated to the settings sync
+work, just a deployment config file with nothing to merge conflict with.
+
 ## Current Phase
 
-**Phase 27 complete.** **Phase 28 — Orders (Backend-Integrated) — is
-next**, per `ROADMAP.md`.
+**Phase 28 complete.** **Phase 29 — Inventory — is next**, per
+`ROADMAP.md`.
 
 ## Completed Phases
 
@@ -252,6 +313,7 @@ next**, per `ROADMAP.md`.
 | 25 | Backend Integration | First real backend: Supabase (Postgres + Auth), the project owner's confirmed choice. Plumbing only, per its own brief — `lib/api/client.ts` (Supabase singleton), `lib/api/types.ts` (row↔model contracts), `lib/api/{auth,products,categories,orders}.ts` (one file per domain, each mirroring an existing `localStorage`-backed module's function shapes 1:1), and `supabase/schema.sql` (table definitions + RLS: public read for the catalog, owner-only for profiles/orders) all exist, but nothing in the UI calls any of it yet — every consumer untouched, bundle size unchanged (tree-shaken out entirely). Every API function takes an injectable `client` parameter (default: the real singleton) so its tests never touch the network. |
 | 26 | Authentication (Backend-Integrated) | `AuthProvider` migrated off the Phase 6 mock onto real Supabase Auth via Phase 25's `lib/api/auth.ts`, with a `profiles` row (name/role) per account. `login`/`signup` kept their Phase 6 call shapes (no consumer changes beyond `logout()` becoming `async`, since it's now a real `signOut()` network call every call site `await`s before its hard navigation). `AuthContext` gained `isInitializing`, which `RequireAuth`/`RequireAdmin` wait on before judging auth state — the one place this app needs to account for a real async session check on load instead of the mock's synchronous read. Session persistence is Supabase's own client-side model (no server here to own an httpOnly cookie). `src/test/fakeSupabaseAuth.ts` is a new in-memory fake Supabase Auth + `profiles` backend, globally mocked in for every test that mounts `AuthProvider`. See the Current Progress note above for the full detail and the Known Issues this introduced. |
 | 27 | Products (Backend-Integrated) | Product Manager (`hooks/useProducts.ts`), `Shop.tsx`, `ProductDetail.tsx`, and the homepage `FeaturedProducts`/`BestSellers`/`NewArrivals` sections all migrated off `lib/productsStore.ts`'s Phase 19 `localStorage` override onto Phase 25's `lib/api/products.ts` against the real backend — that override layer (`saveProductOverride`/`deleteProductOverride`/`resolveAllProducts`/etc., plus `PRODUCTS_CHANGE_EVENT`) is removed outright, not just deprecated. Each consumer now fetches independently with its own loading skeleton/`ErrorState`-with-retry (the homepage sections re-derive their featured/best-seller/new-arrival lists from whatever they just fetched, via new pure `deriveFeaturedProducts()`/`deriveBestSellers()`/`deriveNewArrivals()` helpers, instead of reading a synchronously-resolved catalog). Product Manager's "Reset to defaults" is gone (no static default to reset to against a real database); save/delete are `async` with their own inline error handling per modal. Added admin-only RLS write policies to `supabase/schema.sql`'s `products` table (closing a Phase 25 placeholder) and `supabase/seed_products.sql` to seed a fresh project with the existing 24-product catalog. `lib/adminStats.ts`/`lib/categoriesStore.ts` (Category Manager's delete-guard) were intentionally left reading a small deprecated in-memory (non-persistent) cache rather than migrated — Category Manager itself isn't backend-integrated yet — see Known Issues. `src/test/fakeSupabaseAuth.ts` (the global test backend fake from Phase 26) now also serves a `products` table seeded from `ALL_PRODUCTS`. |
+| 28 | Orders (Backend-Integrated) | `lib/checkout.ts`'s fake-latency `placeOrder()` is replaced with a synchronous `buildOrder()`; `Checkout.tsx` writes a signed-in shopper's order to the real `orders` table via Phase 25's `lib/api/orders.ts` (`apiSaveOrderForUser()`), with inline error handling on a failed write (cart/form preserved, no navigation) — the same per-action try/catch shape Phase 27's Product Manager established. New `hooks/useOrders.ts` (mirroring `useProducts.ts`'s loading/success/error shape) backs `Account.tsx`'s order history, which now fetches live from the backend (own loading skeleton + `ErrorState`-with-retry) instead of a direct synchronous `localStorage` read. `OrderConfirmation.tsx` is structurally unchanged (still a one-time receipt from router state) but, for a signed-in checkout, now displays the exact record just written to the backend. Guest checkout still can't persist an order — the `orders` table's RLS insert policy only allows a signed-in user to write their own row, unchanged this phase — same pre-existing limitation, now enforced by the database rather than by `Checkout.tsx` skipping a local write. `src/test/fakeSupabaseAuth.ts` gained an `orders` table (no seed data — orders only exist once a real checkout creates one). New tests `Checkout.test.tsx`/`Account.test.tsx`; `checkout.test.ts` rewritten for the synchronous `buildOrder()`. |
 
 ## Remaining Phases
 
@@ -787,8 +849,12 @@ for CI/deploy environments.
   deletion.** Supabase Auth supports all three, but wiring them into this
   app's UI wasn't in Phase 26's brief. Not currently scheduled — revisit
   alongside a future account-management phase.
-- **No real checkout/payment processing.** "Place order" is a simulated
-  submission — scheduled as `ROADMAP.md` Phase 31 (Payments).
+- **~~No real checkout/payment processing~~ — partially resolved in
+  Phase 28.** "Place order" now writes a real order to the backend for a
+  signed-in checkout (`lib/api/orders.ts`'s `apiSaveOrderForUser()`);
+  what's still simulated is payment itself — there's no real charge, just
+  a chosen payment method stored on the order. Scheduled as `ROADMAP.md`
+  Phase 31 (Payments).
 - **`MAX_QTY` (10) is a hardcoded constant** in `CartProvider.tsx` — no
   per-product stock/inventory field exists on `Product` yet. Scheduled as
   `ROADMAP.md` Phase 29 (Inventory).
@@ -861,6 +927,22 @@ for CI/deploy environments.
   page loads live data. Not currently scheduled; resolved for real once
   a future phase migrates Category Manager onto the backend and converts
   both call sites to real async calls.
+- **Guest checkout still doesn't persist an order anywhere.** The
+  `orders` table's RLS insert policy (`supabase/schema.sql`) only allows
+  a signed-in user to insert a row for their own email, so there's
+  nowhere for an unauthenticated write to go — the same limitation the
+  pre-Phase-28 `localStorage` version had, just now enforced by the
+  database instead of by `Checkout.tsx` choosing not to call a local
+  write. Not addressed by Phase 28's scope; would need a deliberate
+  decision (e.g. a relaxed RLS policy for anonymous inserts, or a
+  different guest-order identifier scheme) if closed later. Not
+  currently scheduled.
+- **`lib/adminStats.ts`'s dashboard order count still reads the
+  deprecated `lib/orders.ts` `localStorage` store, not the real
+  backend**, since Phase 28 (Orders, backend-integrated) scoped only
+  Checkout/Account, not the admin dashboard. Same pattern as the product/
+  category counts above; not currently scheduled — revisit alongside
+  whichever future phase migrates the admin dashboard.
 - **Homepage Editor has no live in-page preview**, unlike Theme Editor.
   This is intentional, not an oversight: a section arrangement is just
   data `pages/Home.tsx` reads at render time, with no DOM side effect to
@@ -978,6 +1060,25 @@ preserving accessibility on every change, but this has been enforced
 per-phase via manual review rather than automated tooling (no
 `eslint-plugin-jsx-a11y` or axe integration currently wired in). Not
 currently scheduled as its own phase.
+- **Settings sync only covers Theme/Store Settings/Homepage, not
+  Navigation/Footer/Policies/Media.** `lib/navigationSettingsStore.ts`,
+  `lib/footerSettingsStore.ts`, `lib/policySettingsStore.ts`/
+  `usePolicySettings.ts`, and `lib/mediaStore.ts` are all still
+  `localStorage`-only, same cross-device limitation the other three had
+  before the settings-sync work merged in above. Not addressed by that
+  work's scope (it only touched the three stores it touched) and not
+  currently scheduled - would need the same `site_settings`-table
+  treatment if closed later.
+- **A handful of unused, unreferenced files were present in the deployed
+  version this was merged from:** `config/homepageLayouts.ts` (and its
+  test) is a Phase 10 file explicitly superseded by Phase 11's
+  `config/layouts/home.ts` (see that file's own doc comment) but never
+  deleted; `data/contact-content.ts` and `data/home-content.ts` have no
+  importers anywhere in `src`. All three build/lint/test clean since
+  nothing imports them, so they were left in place rather than removed
+  as part of this merge (removing unreferenced files from a different
+  session's work wasn't this merge's purpose) - safe to delete in a
+  future cleanup pass if desired.
 
 ## Security Notes
 
@@ -1000,6 +1101,10 @@ things to keep in mind:
   via `supabase/schema.sql`'s policies, not just hidden behind a
   client-side route guard. Read access remains public (`select` policy),
   matching a storefront catalog's normal visibility.
+- The merged-in `site_settings` table (see Current Progress above) uses
+  the same admin-gated-write/public-read RLS shape as `products` —
+  anyone can `select`, but `insert`/`update` require the signed-in user's
+  `profiles.role` to be `admin`, enforced in `supabase/schema.sql`.
 
 ---
 

@@ -2,29 +2,31 @@ import { LogOut, Package } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { EmptyState } from "@/components/ui/StateMessage";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/StateMessage";
 import { formatPHP } from "@/lib/currency";
-import { getOrdersForUser } from "@/lib/orders";
+import { useOrders } from "@/hooks/useOrders";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { EMPTY_STATES } from "@/content/states";
+import { EMPTY_STATES, ERROR_STATES } from "@/content/states";
 import { PAGE_META } from "@/config/site";
 import { useSiteMeta } from "@/hooks/useSiteMeta";
 
 /**
  * Protected by RequireAuth in App.tsx - only reachable when logged in.
- * Order history reads straight from localStorage via getOrdersForUser();
- * no simulated fetch here for the same reason Wishlist.tsx skips one -
- * this data never left the browser.
+ * Order history is fetched from the real backend via `useOrders()`
+ * (Phase 28), replacing the old direct, synchronous
+ * `getOrdersForUser()` localStorage read - so this page now has its own
+ * loading skeleton and `ErrorState`-with-retry, the same shape
+ * `ProductManager.tsx` (Phase 27) established for an async list fetch.
  */
 export function Account() {
   useSiteMeta(PAGE_META.account);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { orders, status, reload } = useOrders(user?.email);
 
   if (!user) return null; // RequireAuth guarantees this never renders - keeps TS happy
-
-  const orders = getOrdersForUser(user.email);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
@@ -73,11 +75,33 @@ export function Account() {
 
         <div className="lg:col-span-2">
           <h2 className="font-display text-xl text-ink">Order history</h2>
-          {orders.length === 0 ? (
+          {status === "loading" && (
+            <ul className="mt-4 flex flex-col gap-4" aria-busy="true" aria-label="Loading orders">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <li key={i}>
+                  <Card padding="md">
+                    <div className="flex items-center justify-between gap-2">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                    <Skeleton className="mt-3 h-4 w-24" />
+                    <Skeleton className="mt-2 h-6 w-20" />
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+          {status === "error" && (
+            <div className="mt-4">
+              <ErrorState {...ERROR_STATES.orders} onAction={reload} />
+            </div>
+          )}
+          {status === "success" && orders.length === 0 && (
             <div className="mt-4">
               <EmptyState {...EMPTY_STATES.orders} onAction={() => navigate("/shop")} />
             </div>
-          ) : (
+          )}
+          {status === "success" && orders.length > 0 && (
             <ul className="mt-4 flex flex-col gap-4">
               {orders.map((order) => (
                 <li key={order.orderNumber}>

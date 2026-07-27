@@ -10,11 +10,11 @@ import {
   FREE_SHIPPING_THRESHOLD,
   PAYMENT_METHODS,
   SHIPPING_FEE,
-  placeOrder,
+  buildOrder,
   validateCheckout,
 } from "@/lib/checkout";
 import type { CheckoutErrors } from "@/lib/checkout";
-import { saveOrderForUser } from "@/lib/orders";
+import { apiSaveOrderForUser } from "@/lib/api/orders";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import type { CheckoutFormData } from "@/types/order";
@@ -32,14 +32,25 @@ const BLANK_FORM: Omit<CheckoutFormData, "fullName" | "email"> = {
 };
 
 /**
- * Shipping details + payment method, then a simulated order placement
- * (same fake-latency pattern as Newsletter's subscribe()). Redirects to
- * /cart if there's nothing to check out.
+ * Shipping details + payment method, then a real order placement.
+ * Redirects to /cart if there's nothing to check out.
  *
  * If someone's logged in, their name/email are pre-filled (one less thing
- * to type) and the placed order is saved to their account's order history
- * via saveOrderForUser() - guest checkout still works identically, the
- * order just isn't saved anywhere to look up again afterward.
+ * to type) and the placed order is written to the real `orders` table via
+ * `apiSaveOrderForUser()` (Phase 28), visible afterward in Account's order
+ * history. Guest checkout still works identically to before, but the
+ * order still isn't persisted anywhere to look up again afterward - the
+ * `orders` table's RLS policy (`supabase/schema.sql`) only allows a
+ * signed-in user to insert a row for their own email, so there's nowhere
+ * for an unauthenticated write to go. This is the same guest limitation
+ * `saveOrderForUser()` had before this phase (see `MASTER_HANDOFF.md`
+ * Known Issues), just now enforced by the database instead of by this
+ * component choosing not to call a `localStorage` write.
+ *
+ * A failed write (network error, RLS rejection, etc.) shows an inline
+ * error and leaves the cart and form intact so the shopper can retry -
+ * it does not clear the cart or navigate to the confirmation page, since
+ * nothing was actually saved.
  *
  * `placedOrder` guards the empty-cart redirect against a race with the
  * post-submit navigate to /order-confirmation: clearCart() empties `lines`
@@ -61,6 +72,7 @@ export function Checkout() {
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [placedOrder, setPlacedOrder] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (lines.length === 0 && !placedOrder) {
@@ -78,14 +90,20 @@ export function Checkout() {
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
 
+    setSubmitError(null);
     setIsSubmitting(true);
-    const order = await placeOrder(form, lines, subtotal);
-    setPlacedOrder(true);
-    if (user) {
-      saveOrderForUser(user.email, order);
+    const order = buildOrder(form, lines, subtotal);
+    try {
+      if (user) {
+        await apiSaveOrderForUser(user.email, order);
+      }
+      setPlacedOrder(true);
+      clearCart();
+      navigate("/order-confirmation", { state: { order } });
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong placing your order.");
+      setIsSubmitting(false);
     }
-    clearCart();
-    navigate("/order-confirmation", { state: { order } });
   }
 
   if (lines.length === 0) return null; // redirect effect above handles navigation
@@ -227,6 +245,7 @@ export function Checkout() {
             <span className="font-semibold text-ink">Total</span>
             <span className="font-display text-xl text-denim-deep">{formatPHP(total)}</span>
           </div>
+          {submitError && <p className="mt-4 text-sm text-error">{submitError}</p>}
           <Button type="submit" size="lg" isLoading={isSubmitting} className="mt-6 w-full">
             Place order
           </Button>

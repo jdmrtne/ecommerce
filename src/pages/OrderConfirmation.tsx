@@ -15,6 +15,14 @@ import { useSiteMeta } from "@/hooks/useSiteMeta";
  * something that needs to survive a refresh or be linkable/bookmarkable.
  * A direct visit with no state (e.g. a refresh, or typing the URL) redirects
  * to the shop rather than rendering a broken/empty receipt.
+ *
+ * Phase 28: for a signed-in checkout, the order shown here is the exact
+ * object that was just written to the real `orders` table via
+ * `apiSaveOrderForUser()` - Checkout only navigates here after that write
+ * succeeds. This page itself still doesn't re-fetch it from the backend
+ * (see above for why a receipt is intentionally not refresh-durable); a
+ * signed-in shopper can look the same order up again afterward on
+ * `/account`, which does read live from the backend.
  */
 export function OrderConfirmation() {
   useSiteMeta(PAGE_META.orderConfirmation);

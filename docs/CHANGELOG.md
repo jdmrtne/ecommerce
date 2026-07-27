@@ -6,6 +6,120 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Merge — Deployed Build (Settings Sync)
+
+This entry documents a merge between this project's phase-tracked
+codebase (through Phase 28) and a separately-deployed build the user had
+put on Vercel. The deployed build was based on the Phase 27 codebase but
+included one feature built outside the numbered phase sequence, with no
+`ROADMAP.md`/`CHANGELOG.md` entry of its own — recorded here now so the
+docs match what's actually shipped. The deployed build's version of
+every other file was identical to this project's own Phase 27 output, so
+nothing else needed reconciling; Phase 28 (below) was then layered back
+on top of the merged result.
+
+### Added
+- **Settings sync.** A new `site_settings` table (`supabase/schema.sql`)
+  — a generic key/value store, one row per settings group
+  (`"theme"`/`"store"`/`"homepage"`), each holding that group's own
+  override object as a `jsonb` blob — plus `lib/api/settings.ts`
+  (`apiGetSetting()`/`apiSaveSetting()`) and `lib/settingsSync.ts`
+  (`syncSettingsFromServer()`, called once at boot from `main.tsx` right
+  after the existing synchronous `applyPreset(resolveActivePreset())`
+  call). `lib/themeSettingsStore.ts`, `lib/storeSettingsStore.ts`, and
+  `lib/homepageSettingsStore.ts` were each updated to read/write through
+  this instead of `localStorage` alone, so an admin's Theme/Store
+  Settings/Homepage Editor save now syncs to other devices/browsers, not
+  just the one that saved it. RLS on `site_settings` matches
+  `products`': public read, admin-only insert/update.
+- `vercel.json` — SPA rewrite config (`/(.*) → /index.html`) needed for
+  client-side routing on Vercel's static hosting.
+- `src/test/fakeSupabaseAuth.ts` gained a `site_settings` table
+  alongside `products`/`orders` to back the above in tests.
+
+### Known Issues
+- Settings sync covers only Theme/Store Settings/Homepage — Navigation,
+  Footer, Policies, and Media settings are all still `localStorage`-only
+  and don't sync across devices. Not addressed by this feature's scope.
+- Two unreferenced data files (`data/contact-content.ts`,
+  `data/home-content.ts`) and one unused, long-superseded file
+  (`config/homepageLayouts.ts`, replaced by `config/layouts/home.ts` back
+  in Phase 11) were present in the deployed build with no importers
+  anywhere. Left in place rather than removed as part of this merge —
+  see `MASTER_HANDOFF.md` Known Issues.
+
+## Phase 28 — Orders (Backend-Integrated)
+
+### Added
+- `hooks/useOrders.ts` — reactive hook fetching a signed-in user's order
+  history from the real backend via `lib/api/orders.ts`'s
+  `apiGetOrdersForUser()`. Mirrors `useProducts.ts`'s (Phase 27)
+  `{ data, status, reload }` shape for an async list read; unlike
+  `useProducts`, there's no `save`/`remove`, since orders are insert-only
+  from Checkout.
+- `ERROR_STATES.orders` in `content/states.ts` — copy for a failed
+  order-history fetch on `/account`.
+- `orders` table support in `src/test/fakeSupabaseAuth.ts` (the shared
+  in-memory backend fake every test gets via `src/test/setup.ts`), with
+  no seed data — an order only ever exists once a real checkout creates
+  one, unlike the `products` table's static seed.
+- Tests: `src/pages/Checkout.test.tsx` and `src/pages/Account.test.tsx`
+  (neither existed before this phase) covering a signed-in order write
+  reaching the backend, an inline error on a failed write, a signed-in
+  order-history loading/empty/error/success cycle, and confirming a
+  guest checkout does not write to the backend.
+
+### Changed
+- `lib/checkout.ts`'s `placeOrder()` (a fake `setTimeout`-wrapped
+  simulation of network latency) is replaced with a synchronous
+  `buildOrder()` — pure order-object construction with no artificial
+  delay, since real latency now comes from the real API call for a
+  signed-in checkout.
+- `pages/Checkout.tsx` — `handleSubmit` now calls
+  `apiSaveOrderForUser()` (Phase 25 plumbing, not previously called from
+  the UI) to write the built order to the real `orders` table whenever
+  someone's signed in, instead of the old simulated `placeOrder()` +
+  `localStorage`-backed `saveOrderForUser()`. A failed write shows an
+  inline error message and leaves the cart/form intact (no clear, no
+  navigate) so the shopper can retry — the same per-action
+  try/catch-with-inline-error shape `ProductManager.tsx` (Phase 27)
+  established. Guest checkout (nobody signed in) is otherwise unchanged.
+- `pages/Account.tsx` — order history now reads through `useOrders()`
+  instead of a direct, synchronous `getOrdersForUser()` `localStorage`
+  read; the page has its own loading skeleton (reusing `Skeleton`) and
+  `ErrorState`-with-retry around the order list.
+- `pages/OrderConfirmation.tsx` — doc comment updated only; the page is
+  structurally unchanged (still a one-time receipt read from router
+  location state, not re-fetched), but for a signed-in checkout the
+  order it renders is now the exact record that was just written to the
+  real backend, since Checkout only navigates here after that write
+  succeeds.
+- `lib/orders.ts` (the pre-backend `localStorage` order store) — doc
+  comments updated to mark both functions deprecated; `saveOrderForUser`
+  is no longer called by `Checkout.tsx`. Kept only because
+  `lib/adminStats.ts`'s dashboard order count still reads
+  `getOrdersForUser()` (out of this phase's scope — see Known Issues).
+- `src/lib/checkout.test.ts` — rewritten for the new synchronous
+  `buildOrder()`; the fake-timer plumbing (`vi.useFakeTimers()`/
+  `vi.runAllTimersAsync()`) the old async `placeOrder()` tests needed is
+  gone.
+- `src/components/contact/ContactDetails.tsx` — stale doc-comment
+  reference to `Checkout`'s (now-removed) `placeOrder()` updated; the
+  contact form's own simulated-latency pattern is unaffected.
+
+### Known Issues
+- Guest checkout still doesn't persist an order anywhere. The `orders`
+  table's RLS insert policy (`supabase/schema.sql`, unchanged this
+  phase) only allows a signed-in user to insert a row for their own
+  email, so there's nowhere for an unauthenticated write to go — the
+  same guest limitation the pre-Phase-28 `localStorage` version had, now
+  enforced by the database instead of by `Checkout.tsx` choosing not to
+  call a local write. Not addressed by this phase's scope.
+- `lib/adminStats.ts`'s dashboard order count still reads the deprecated
+  `lib/orders.ts` `localStorage` store, not the real backend — this
+  phase's scope was Checkout/Account only, not the admin dashboard. Same
+  pattern Phase 27 left for the product/category counts.
+
 ## Phase 27 — Products (Backend-Integrated)
 
 ### Added

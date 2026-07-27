@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ProductRow, ProfileRow } from "@/lib/api/types";
+import type { OrderRow, ProductRow, ProfileRow } from "@/lib/api/types";
 import { toProductRow } from "@/lib/api/types";
 import { ALL_PRODUCTS } from "@/data/products";
 
@@ -30,6 +30,17 @@ import { ALL_PRODUCTS } from "@/data/products";
  * sections/`ProductManager` all now call `lib/api/products.ts` against
  * the default `supabase` singleton, which every test file gets this fake
  * for whether it asked for one or not.
+ *
+ * Phase 28 - Orders (Backend-Integrated) adds an `orders` table, with no
+ * seed data (an order is only ever created by a real checkout, unlike
+ * the product catalog's static defaults) - `Checkout`/`Account` now call
+ * `lib/api/orders.ts` against this same default singleton.
+ *
+ * Settings sync (see `lib/api/settings.ts`/`lib/settingsSync.ts`) adds a
+ * `site_settings` table, a generic key/value store (one row per settings
+ * group - `"theme"`/`"store"`/`"homepage"`) rather than one table per
+ * feature, since every settings editor already shares the same
+ * override-over-defaults shape.
  */
 
 interface FakeAccount {
@@ -59,6 +70,7 @@ export function createFakeAuthClient(): FakeAuthClient {
   let profiles = new Map<string, ProfileRow>(); // key: id
   let products = seedProducts();
   let settings = new Map<string, unknown>(); // key: site_settings row key (theme/store/homepage)
+  let orders = new Map<string, OrderRow>(); // key: order_number
   let session: FakeSession = null;
   let idSeq = 1;
   let listeners = new Set<AuthListener>();
@@ -156,11 +168,35 @@ export function createFakeAuthClient(): FakeAuthClient {
     };
   }
 
+  function ordersTable() {
+    return {
+      select: () => ({
+        eq: (field: string, value: string) => ({
+          order: (orderField: string, opts?: { ascending?: boolean }) => {
+            const rows = [...orders.values()]
+              .filter((o) => (o as unknown as Record<string, unknown>)[field] === value)
+              .sort((a, b) => {
+                const av = String((a as unknown as Record<string, unknown>)[orderField]);
+                const bv = String((b as unknown as Record<string, unknown>)[orderField]);
+                return opts?.ascending === false ? bv.localeCompare(av) : av.localeCompare(bv);
+              });
+            return Promise.resolve({ data: rows, error: null });
+          },
+        }),
+      }),
+      insert: (row: OrderRow) => {
+        orders.set(row.order_number, row);
+        return Promise.resolve({ data: row, error: null });
+      },
+    };
+  }
+
   const client = {
     from: (table: string) => {
       if (table === "profiles") return profilesTable();
       if (table === "products") return productsTable();
       if (table === "site_settings") return settingsTable();
+      if (table === "orders") return ordersTable();
       throw new Error(`FakeAuthClient: unsupported table "${table}"`);
     },
     auth: {
@@ -211,6 +247,7 @@ export function createFakeAuthClient(): FakeAuthClient {
       profiles = new Map();
       products = seedProducts();
       settings = new Map();
+      orders = new Map();
       session = null;
       listeners = new Set();
     },
