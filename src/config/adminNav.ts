@@ -10,6 +10,7 @@ import {
   PanelBottom,
   FileText,
   Image,
+  Users,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -27,10 +28,9 @@ export interface AdminNavItem {
  * these up to a real path; Phase 16 added Store Settings, Phase 17 added
  * Theme, Phase 18 added Homepage, Phase 19 added Products, Phase 20 added
  * Categories, Phase 21 added Navigation, Phase 22 added Footer, Phase 23
- * added Policies, Phase 24 added Media). Sections
- * without a `path` render
- * as inert "Coming soon" list items rather than dead links, so nothing
- * 404s.
+ * added Policies, Phase 24 added Media, Phase 30 added Customers).
+ * Sections without a `path` render as inert "Coming soon" list items
+ * rather than dead links, so nothing 404s.
  */
 export const ADMIN_NAV: AdminNavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/admin", available: true },
@@ -43,4 +43,5 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { label: "Footer", icon: PanelBottom, path: "/admin/footer", available: true },
   { label: "Policies", icon: FileText, path: "/admin/policies", available: true },
   { label: "Media", icon: Image, path: "/admin/media", available: true },
+  { label: "Customers", icon: Users, path: "/admin/customers", available: true },
 ];

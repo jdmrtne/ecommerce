@@ -339,9 +339,33 @@ once for this trigger to exist on the live project. `ProductManager.tsx`'s
 existing Stock field now validates (non-negative whole number) and the
 product list shows an in-stock/out-of-stock indicator per row.
 
+**Phase 30 — Customers.** Admin-facing customer management, distinct from
+the account-holder's own `/account` self-service view: a read-only
+`/admin/customers` list (search by name/email, filter by role) and an
+`/admin/customers/:email` detail page (profile fields plus full order
+history). Both are thin - `hooks/useCustomers.ts` is the first new hook
+this phase adds, wrapping `apiGetCustomers()` (`lib/api/auth.ts` plumbing
+added back in Phase 25 but never wired into any UI until now); the
+detail page's order history reuses `hooks/useOrders.ts` (Phase 28)
+completely as-is - the exact same hook `Account.tsx` uses for a
+signed-in customer's own history, just pointed at someone else's email.
+The one real gap this phase closed rather than working around: RLS on
+`profiles`/`orders` only ever let a signed-in user read their *own* row -
+`apiGetCustomers()` and an admin's `apiGetOrdersForUser(otherEmail)` call
+would both have silently returned nothing against a real project without
+two new admin-read policies in `supabase/schema.sql` (same
+`profiles.role = 'admin'` check every other write-gated table already
+uses; the `profiles` one is self-referencing, which is safe here since
+the subquery only ever needs to see the *caller's own* row, already
+visible via the existing owner policy). **Jude needs to run the updated
+schema once**, same as Media/Inventory before it - additive and safe to
+re-run. No create/edit/delete here - an admin can view but not modify a
+customer's own account fields; that's out of this phase's scope (see
+`ROADMAP.md`).
+
 ## Current Phase
 
-**Phase 29 complete.** See `ROADMAP.md`'s Status section for the next
+**Phase 30 complete.** See `ROADMAP.md`'s Status section for the next
 unfinished phase.
 
 ## Completed Phases
@@ -378,6 +402,7 @@ unfinished phase.
 | 27 | Products (Backend-Integrated) | Product Manager (`hooks/useProducts.ts`), `Shop.tsx`, `ProductDetail.tsx`, and the homepage `FeaturedProducts`/`BestSellers`/`NewArrivals` sections all migrated off `lib/productsStore.ts`'s Phase 19 `localStorage` override onto Phase 25's `lib/api/products.ts` against the real backend — that override layer (`saveProductOverride`/`deleteProductOverride`/`resolveAllProducts`/etc., plus `PRODUCTS_CHANGE_EVENT`) is removed outright, not just deprecated. Each consumer now fetches independently with its own loading skeleton/`ErrorState`-with-retry (the homepage sections re-derive their featured/best-seller/new-arrival lists from whatever they just fetched, via new pure `deriveFeaturedProducts()`/`deriveBestSellers()`/`deriveNewArrivals()` helpers, instead of reading a synchronously-resolved catalog). Product Manager's "Reset to defaults" is gone (no static default to reset to against a real database); save/delete are `async` with their own inline error handling per modal. Added admin-only RLS write policies to `supabase/schema.sql`'s `products` table (closing a Phase 25 placeholder) and `supabase/seed_products.sql` to seed a fresh project with the existing 24-product catalog. `lib/adminStats.ts`/`lib/categoriesStore.ts` (Category Manager's delete-guard) were intentionally left reading a small deprecated in-memory (non-persistent) cache rather than migrated — Category Manager itself isn't backend-integrated yet — see Known Issues. `src/test/fakeSupabaseAuth.ts` (the global test backend fake from Phase 26) now also serves a `products` table seeded from `ALL_PRODUCTS`. |
 | 28 | Orders (Backend-Integrated) | `lib/checkout.ts`'s fake-latency `placeOrder()` is replaced with a synchronous `buildOrder()`; `Checkout.tsx` writes a signed-in shopper's order to the real `orders` table via Phase 25's `lib/api/orders.ts` (`apiSaveOrderForUser()`), with inline error handling on a failed write (cart/form preserved, no navigation) — the same per-action try/catch shape Phase 27's Product Manager established. New `hooks/useOrders.ts` (mirroring `useProducts.ts`'s loading/success/error shape) backs `Account.tsx`'s order history, which now fetches live from the backend (own loading skeleton + `ErrorState`-with-retry) instead of a direct synchronous `localStorage` read. `OrderConfirmation.tsx` is structurally unchanged (still a one-time receipt from router state) but, for a signed-in checkout, now displays the exact record just written to the backend. Guest checkout still can't persist an order — the `orders` table's RLS insert policy only allows a signed-in user to write their own row, unchanged this phase — same pre-existing limitation, now enforced by the database rather than by `Checkout.tsx` skipping a local write. `src/test/fakeSupabaseAuth.ts` gained an `orders` table (no seed data — orders only exist once a real checkout creates one). New tests `Checkout.test.tsx`/`Account.test.tsx`; `checkout.test.ts` rewritten for the synchronous `buildOrder()`. |
 | 29 | Inventory | New `lib/inventory.ts` — pure stock helpers (`isOutOfStock`, `isLowStock`, `maxPurchasableQuantity`, `checkStockForLines`, shared `MAX_CART_QTY`) built around `Product.stock` (on the type since an earlier phase, now actually load-bearing instead of "architecture only"). `ProductDetail.tsx`/`ProductCard.tsx`/`Cart.tsx` show low/out-of-stock states and cap quantity against real stock (fetched live, since `CartProvider.tsx` itself still only joins the static catalog); `Checkout.tsx` runs a final `checkStockForLines()` re-check against a fresh fetch right before submitting, blocking with an itemized error if stock changed. New `orders_decrement_stock` trigger (`security definer`, `supabase/schema.sql`) is the actual atomic guarantee — row-locks, re-checks, and decrements each tracked line's stock inside the order insert's own transaction, so a concurrent race for the last unit can't oversell; requires Jude to run the updated schema once. `ProductManager.tsx`'s existing Stock field gained validation and the product list shows an in-stock/out-of-stock indicator. New tests `lib/inventory.test.ts`/`Cart.test.tsx`; stock-aware cases added to `ProductDetail.test.tsx`/`Checkout.test.tsx`/`productValidation.test.ts`. |
+| 30 | Customers | Read-only admin customer management: new `/admin/customers` list (`Customers.tsx`, search by name/email, filter by role) and `/admin/customers/:email` detail page (`CustomerDetail.tsx`, profile fields + full order history). New `hooks/useCustomers.ts` wraps `apiGetCustomers()` (`lib/api/auth.ts` plumbing added in Phase 25, unused by any UI until now); the detail page's order history reuses `hooks/useOrders.ts` (Phase 28) as-is, pointed at another account's email. Two new admin-read RLS policies in `supabase/schema.sql` (`profiles`, `orders`) close a real gap — without them, an admin's calls under real Supabase would have silently returned nothing, since both tables' prior policies only ever let a signed-in user read their own row; requires Jude to run the updated schema once. `ADMIN_NAV` gained a "Customers" entry. New tests `hooks/useCustomers.test.ts`/`Customers.test.tsx`/`CustomerDetail.test.tsx`. No create/edit/delete — out of this phase's scope. |
 
 ## Remaining Phases
 
@@ -1099,6 +1124,17 @@ for CI/deploy environments.
   on next view. Not currently scheduled; would need a deliberate
   decision if wanted (e.g. an admin dashboard low-stock widget, an email
   notification).
+- **Customers (Phase 30) is read-only, and the list shows no order
+  count/spend per row.** An admin can view but not edit/deactivate a
+  customer account or change its role from this UI (Supabase Dashboard
+  is the only way today); the list also doesn't show each customer's
+  order count or lifetime spend inline, to avoid an N+1 fetch (one
+  `orders` query per row) on a page that's otherwise a single
+  `apiGetCustomers()` call. Order history is one click away on
+  `CustomerDetail.tsx`, which fetches it lazily per-customer. Neither
+  gap is currently scheduled — would need a deliberate decision if
+  wanted (e.g. a `role`-editing flow, a denormalized order-count column
+  or a dashboard aggregate query).
 
 ## Technical Debt
 

@@ -94,5 +94,13 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
     title: "Media Library",
     description: "Upload and manage the images used across your store.",
   },
+  adminCustomers: {
+    title: "Customers",
+    description: "View registered customers and their order history.",
+  },
+  adminCustomerDetail: {
+    title: "Customer Detail",
+    description: "View a customer's account details and order history.",
+  },
   notFound: { title: "Page Not Found", description: "The page you're looking for doesn't exist." },
 };

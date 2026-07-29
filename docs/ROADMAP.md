@@ -10,8 +10,11 @@ shipped.
 
 ## Status
 
-- **Last completed phase:** 29 — Inventory
-- **Next phase to start:** 30 — not yet scoped. Ask Jude what's next before starting anything.
+- **Last completed phase:** 30 — Customers
+- **Next phase to start:** 31 — Payments. Already scoped below, but its
+  own Scope section requires confirming a payment provider (e.g. Stripe)
+  with Jude before any code is written — see "Scope discipline" under
+  Future Development Rules.
 - **Rule:** complete ONE phase per session, then stop and wait for approval.
 - **Note:** a cross-device settings sync feature (`site_settings` table,
   `lib/api/settings.ts`, `lib/settingsSync.ts`) exists in the codebase
@@ -64,6 +67,8 @@ Full detail lives in `MASTER_HANDOFF.md` → "Completed Phases". Summary:
 | 26 | Authentication (Backend-Integrated) |
 | 27 | Products (Backend-Integrated) |
 | 28 | Orders (Backend-Integrated) |
+| 29 | Inventory |
+| 30 | Customers |
 
 ---
 
@@ -712,7 +717,7 @@ submission.
 
 ---
 
-### Phase 30 — Customers
+### Phase 30 — Customers *(COMPLETE)*
 
 **Objective:** Admin-facing customer management, distinct from the
 account-holder's own `/account` self-service view.
@@ -726,6 +731,31 @@ account-holder's own `/account` self-service view.
 
 **Completion Criteria:**
 - Build/lint/tests pass.
+
+**Outcome:** `hooks/useCustomers.ts` wraps `apiGetCustomers()`
+(`lib/api/auth.ts` plumbing added in Phase 25 but never wired into any
+UI until now) with the same `{ data, status, reload }` shape as
+`useProducts()`/`useOrders()`. `pages/admin/Customers.tsx`
+(`/admin/customers`) lists every registered account with client-side
+search (name/email) and a role filter; each row links to
+`pages/admin/CustomerDetail.tsx` (`/admin/customers/:email`), which
+shows that account's profile fields plus its full order history via
+`hooks/useOrders.ts` (Phase 28) — the exact same hook `Account.tsx`
+uses for a signed-in customer's own view, just pointed at someone
+else's email. The route param is the customer's URL-encoded email,
+since `AuthUser` has no id field to route on. This surfaced a real gap
+rather than just being a UI-only phase: RLS on `profiles`/`orders` only
+ever let a signed-in user read their own row, so both
+`apiGetCustomers()` and an admin's `apiGetOrdersForUser(otherEmail)`
+call would have silently returned nothing against a real Supabase
+project. Two new admin-read policies close it (`supabase/schema.sql`),
+reusing the same `profiles.role = 'admin'` check every other
+write-gated table already uses — see `CHANGELOG.md`/`MASTER_HANDOFF.md`
+for why the self-referencing `profiles` policy is safe. **Jude needs to
+run the updated schema once**, same as Media/Inventory before it. No
+create/edit/delete here, and the list shows no per-row order count/
+spend (avoids an N+1 fetch) — both out of this phase's scope, tracked
+in `MASTER_HANDOFF.md` Known Issues.
 
 ---
 

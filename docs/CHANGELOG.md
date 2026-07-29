@@ -6,6 +6,60 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Phase 30 — Customers
+
+Admin-facing customer management, distinct from the account-holder's own
+`/account` self-service view. Read-only: an admin can browse the
+registered customer list and drill into one account's full order
+history, but not edit/deactivate an account or change its role from
+this UI.
+
+### Added
+- `hooks/useCustomers.ts` — same `{ data, status, reload }` shape as
+  `useProducts()`/`useOrders()`, wrapping `apiGetCustomers()`
+  (`lib/api/auth.ts` plumbing added in Phase 25, unused by any UI until
+  now).
+- `pages/admin/Customers.tsx` (`/admin/customers`) — list of every
+  registered account, with client-side search (name/email) and a role
+  filter, each row linking to that customer's detail page.
+- `pages/admin/CustomerDetail.tsx` (`/admin/customers/:email`) — one
+  account's profile fields (name/email/role) plus its full order
+  history, reusing `hooks/useOrders.ts` (Phase 28) exactly as
+  `Account.tsx` does for a signed-in customer's own view — just pointed
+  at another account's email. The route param is the customer's
+  URL-encoded email, since `AuthUser` has no id field to route on.
+- `supabase/schema.sql`: two new admin-read RLS policies — "Admins can
+  read every profile" (`profiles`) and "Admins can read every order"
+  (`orders`). Without them, an admin's `apiGetCustomers()`/
+  `apiGetOrdersForUser(otherEmail)` calls would have silently returned
+  nothing against a real Supabase project, since both tables' prior
+  policies only ever let a signed-in user read their own row. The
+  `profiles` policy is self-referencing (a `profiles` policy whose check
+  queries `profiles`) — safe here, since the subquery only ever needs to
+  see the *caller's own* row to confirm `role = 'admin'`, and that row
+  is already visible to them via the existing owner-only select policy
+  (permissive policies on the same table are combined with OR).
+  **Jude needs to run the updated schema once**, same as Media/Inventory
+  before it — additive and safe to re-run.
+- `config/adminNav.ts` gained a "Customers" entry; `App.tsx` registers
+  both new routes under the existing `/admin` route tree.
+- `content/states.ts`/`config/site.ts` gained matching empty/error/
+  not-found copy and page-meta entries for both new pages.
+- New test files: `hooks/useCustomers.test.ts`, `pages/admin/
+  Customers.test.tsx`, `pages/admin/CustomerDetail.test.tsx`.
+
+### Known Issues carried forward
+- No create/edit/delete of a customer account or its role from this UI
+  — out of this phase's scope.
+- The list shows no order count/lifetime spend per row, to avoid an N+1
+  fetch (one `orders` query per customer) on a page that's otherwise a
+  single `apiGetCustomers()` call; order history is one click away on
+  the detail page instead.
+
+### QA
+- `tsc -b`, `vite build`, `npx oxlint src`, and `npm test` (488/488
+  tests, 77 files) all pass clean.
+
 ## Phase 29 — Inventory
 
 Real stock tracking, replacing the hardcoded `MAX_QTY` cart cap:

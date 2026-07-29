@@ -47,6 +47,15 @@ export const EMPTY_STATES = {
     description: `Nothing matched "${query}". Try a different search or clear your filters.`,
     actionLabel: "Clear filters",
   }) satisfies StateCopy,
+  adminCustomersNoResults: {
+    title: "No customers found",
+    description: "No registered customers match the selected filters.",
+  } satisfies StateCopy,
+  customerNotFound: {
+    title: "Customer not found",
+    description: "This account may no longer exist. Take a look at the full customer list instead.",
+    actionLabel: "Back to customers",
+  } satisfies StateCopy,
 };
 
 export const ERROR_STATES = {
@@ -73,6 +82,11 @@ export const ERROR_STATES = {
   media: {
     title: "Couldn't load your media library",
     description: "Something went wrong while loading your uploaded images. Please try again.",
+    actionLabel: "Retry",
+  } satisfies StateCopy,
+  adminCustomers: {
+    title: "Couldn't load customers",
+    description: "Something went wrong while loading the customer list. Please try again.",
     actionLabel: "Retry",
   } satisfies StateCopy,
   boundary: {

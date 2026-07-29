@@ -35,6 +35,18 @@ create policy "Profiles are readable by their own owner"
   on profiles for select
   using (auth.uid() = id);
 
+-- Phase 30 - Customers. `lib/api/auth.ts`'s `apiGetCustomers()` existed as
+-- plumbing since Phase 25 but had no admin-read path under RLS until now -
+-- the policy above only ever let a user see their own row. This is a
+-- self-referencing policy (a `profiles` policy whose check itself queries
+-- `profiles`), which is safe here: the subquery only ever needs to see the
+-- *caller's own* row to confirm `role = 'admin'`, and that row is already
+-- visible to them via the owner policy above (permissive policies on the
+-- same table are combined with OR, not evaluated in isolation).
+create policy "Admins can read every profile"
+  on profiles for select
+  using (exists (select 1 from profiles admin_check where admin_check.id = auth.uid() and admin_check.role = 'admin'));
+
 create policy "A signed-in user can create their own profile"
   on profiles for insert
   with check (auth.uid() = id);
@@ -135,6 +147,15 @@ alter table orders enable row level security;
 create policy "A signed-in user can read their own orders"
   on orders for select
   using (auth.jwt() ->> 'email' = user_email);
+
+-- Phase 30 - Customers. The admin Customer Detail view calls the exact
+-- same `apiGetOrdersForUser(email)` a customer's own `/account` page
+-- does, just with someone else's email - without this policy that call
+-- would silently return an empty list for any admin viewing a customer
+-- who isn't themselves, since the owner-only policy above wouldn't match.
+create policy "Admins can read every order"
+  on orders for select
+  using (exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin'));
 
 create policy "A signed-in user can insert their own orders"
   on orders for insert
