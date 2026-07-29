@@ -5,6 +5,7 @@ import { CraftIcon } from "@/components/ui/CraftIcon";
 import { WishlistButton } from "@/components/ui/WishlistButton";
 import { cn } from "@/lib/cn";
 import { formatPHP } from "@/lib/currency";
+import { isOutOfStock } from "@/lib/inventory";
 import type { Product } from "@/types/product";
 
 interface ProductCardProps {
@@ -18,6 +19,8 @@ interface ProductCardProps {
  * Product teaser card. Links to the product detail page (Phase 4).
  */
 export function ProductCard({ product, rank, className }: ProductCardProps) {
+  const outOfStock = isOutOfStock(product);
+
   return (
     <Link
       to={`/shop/${product.id}`}
@@ -36,15 +39,26 @@ export function ProductCard({ product, rank, className }: ProductCardProps) {
             <img
               src={product.images[0]}
               alt={product.name}
-              className="absolute inset-0 block h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+              className={cn(
+                "absolute inset-0 block h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105",
+                outOfStock && "opacity-60 grayscale",
+              )}
               style={{ objectFit: "cover", objectPosition: "center" }}
             />
           ) : (
             <CraftIcon
               category={product.category}
-              className="h-full w-full p-8 transition-transform duration-300 ease-out group-hover:scale-105"
+              className={cn(
+                "h-full w-full p-8 transition-transform duration-300 ease-out group-hover:scale-105",
+                outOfStock && "opacity-60 grayscale",
+              )}
               iconClassName="h-10 w-10"
             />
+          )}
+          {outOfStock && (
+            <span className="absolute left-3 top-3 rounded-full bg-ink/80 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-surface shadow-soft">
+              Out of stock
+            </span>
           )}
           {typeof rank === "number" && (
             <span className="absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-bloom text-xs font-bold text-surface shadow-soft">

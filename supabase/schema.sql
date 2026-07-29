@@ -207,3 +207,66 @@ create policy "Only admins can delete media"
     bucket_id = 'media'
     and exists (select 1 from profiles where profiles.id = auth.uid() and profiles.role = 'admin')
   );
+
+-- ---------------------------------------------------------------------
+-- Phase 29 - Inventory. Stock is decremented atomically inside the same
+-- transaction as the order insert (a trigger, not a second client-side
+-- update) for two reasons:
+--
+--   1. `orders` is insert-only from the client (see `lib/api/orders.ts`)
+--      and the write-gated `products` table only grants UPDATE to
+--      admins (the policy above) - a shopper placing an order is never
+--      an admin, so a client-side stock update would need its own RLS
+--      carve-out just for this one column. A `security definer` trigger
+--      sidesteps that entirely.
+--   2. Running inside the insert's own transaction is what actually
+--      prevents overselling under concurrent checkouts - two shoppers
+--      racing for the last unit serialize on this trigger's row lock
+--      (`for update`), and the second one gets the "not enough stock"
+--      exception below (which rolls back their whole order) instead of
+--      both succeeding. The client-side pre-check in `Checkout.tsx`
+--      (`checkStockForLines()`) is only a friendly warning shown before
+--      attempting the write - this trigger is the real guarantee.
+--
+-- Only stock-tracked products are touched (`stock is not null` -
+-- untracked/unlimited products are skipped, same convention
+-- `src/lib/inventory.ts` uses everywhere else).
+-- ---------------------------------------------------------------------
+create or replace function public.decrement_stock_for_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  line jsonb;
+  line_product_id text;
+  line_quantity integer;
+  current_stock integer;
+begin
+  for line in select * from jsonb_array_elements(new.lines)
+  loop
+    line_product_id := line ->> 'productId';
+    line_quantity := (line ->> 'quantity')::integer;
+
+    select stock into current_stock from products where id = line_product_id for update;
+
+    if current_stock is not null then
+      if current_stock < line_quantity then
+        raise exception 'Not enough stock for product %: % available, % requested',
+          line_product_id, current_stock, line_quantity;
+      end if;
+      update products set stock = current_stock - line_quantity where id = line_product_id;
+    end if;
+  end loop;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_decrement_stock on orders;
+
+create trigger orders_decrement_stock
+  after insert on orders
+  for each row
+  execute function public.decrement_stock_for_order();

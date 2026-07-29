@@ -315,10 +315,34 @@ Doesn't have a phase number and isn't tracked as a `ROADMAP.md` phase -
 same "already-shipped infrastructure alongside the numbered phases"
 treatment as the settings sync work above.
 
+**Phase 29 — Inventory.** `Product.stock` (on the type since an earlier
+phase, but "architecture only" until now) is wired all the way through:
+new `lib/inventory.ts` holds every pure stock helper (`isOutOfStock`,
+`isLowStock`, `maxPurchasableQuantity`, `checkStockForLines`, the shared
+`MAX_CART_QTY` constant) - `undefined` stock still means untracked/
+unlimited, not 0, so a white-label store that never sets it sees no
+behavior change. `CartProvider.tsx` itself still only enforces that
+generic cap (no live-catalog access at that layer); real stock limits
+are enforced by the pages that already hold live product data:
+`ProductDetail.tsx` caps Add-to-cart and shows low/out-of-stock states,
+`ProductCard.tsx` shows an out-of-stock badge, `Cart.tsx` fetches live
+stock to cap each line's stepper and disable checkout when a line
+exceeds it, and `Checkout.tsx` runs one final `checkStockForLines()`
+re-check against a fresh fetch right before submitting, blocking with
+an itemized error if anything changed. The actual atomic guarantee
+against overselling is a new `orders_decrement_stock` trigger in
+`supabase/schema.sql` (`security definer`, `after insert on orders`) -
+it row-locks, re-checks, and decrements each tracked line's stock
+inside the same transaction as the order insert, so a concurrent race
+for the last unit can't oversell; Jude needs to run the updated schema
+once for this trigger to exist on the live project. `ProductManager.tsx`'s
+existing Stock field now validates (non-negative whole number) and the
+product list shows an in-stock/out-of-stock indicator per row.
+
 ## Current Phase
 
-**Phase 28 complete.** **Phase 29 — Inventory — is next**, per
-`ROADMAP.md`.
+**Phase 29 complete.** See `ROADMAP.md`'s Status section for the next
+unfinished phase.
 
 ## Completed Phases
 
@@ -353,6 +377,7 @@ treatment as the settings sync work above.
 | 26 | Authentication (Backend-Integrated) | `AuthProvider` migrated off the Phase 6 mock onto real Supabase Auth via Phase 25's `lib/api/auth.ts`, with a `profiles` row (name/role) per account. `login`/`signup` kept their Phase 6 call shapes (no consumer changes beyond `logout()` becoming `async`, since it's now a real `signOut()` network call every call site `await`s before its hard navigation). `AuthContext` gained `isInitializing`, which `RequireAuth`/`RequireAdmin` wait on before judging auth state — the one place this app needs to account for a real async session check on load instead of the mock's synchronous read. Session persistence is Supabase's own client-side model (no server here to own an httpOnly cookie). `src/test/fakeSupabaseAuth.ts` is a new in-memory fake Supabase Auth + `profiles` backend, globally mocked in for every test that mounts `AuthProvider`. See the Current Progress note above for the full detail and the Known Issues this introduced. |
 | 27 | Products (Backend-Integrated) | Product Manager (`hooks/useProducts.ts`), `Shop.tsx`, `ProductDetail.tsx`, and the homepage `FeaturedProducts`/`BestSellers`/`NewArrivals` sections all migrated off `lib/productsStore.ts`'s Phase 19 `localStorage` override onto Phase 25's `lib/api/products.ts` against the real backend — that override layer (`saveProductOverride`/`deleteProductOverride`/`resolveAllProducts`/etc., plus `PRODUCTS_CHANGE_EVENT`) is removed outright, not just deprecated. Each consumer now fetches independently with its own loading skeleton/`ErrorState`-with-retry (the homepage sections re-derive their featured/best-seller/new-arrival lists from whatever they just fetched, via new pure `deriveFeaturedProducts()`/`deriveBestSellers()`/`deriveNewArrivals()` helpers, instead of reading a synchronously-resolved catalog). Product Manager's "Reset to defaults" is gone (no static default to reset to against a real database); save/delete are `async` with their own inline error handling per modal. Added admin-only RLS write policies to `supabase/schema.sql`'s `products` table (closing a Phase 25 placeholder) and `supabase/seed_products.sql` to seed a fresh project with the existing 24-product catalog. `lib/adminStats.ts`/`lib/categoriesStore.ts` (Category Manager's delete-guard) were intentionally left reading a small deprecated in-memory (non-persistent) cache rather than migrated — Category Manager itself isn't backend-integrated yet — see Known Issues. `src/test/fakeSupabaseAuth.ts` (the global test backend fake from Phase 26) now also serves a `products` table seeded from `ALL_PRODUCTS`. |
 | 28 | Orders (Backend-Integrated) | `lib/checkout.ts`'s fake-latency `placeOrder()` is replaced with a synchronous `buildOrder()`; `Checkout.tsx` writes a signed-in shopper's order to the real `orders` table via Phase 25's `lib/api/orders.ts` (`apiSaveOrderForUser()`), with inline error handling on a failed write (cart/form preserved, no navigation) — the same per-action try/catch shape Phase 27's Product Manager established. New `hooks/useOrders.ts` (mirroring `useProducts.ts`'s loading/success/error shape) backs `Account.tsx`'s order history, which now fetches live from the backend (own loading skeleton + `ErrorState`-with-retry) instead of a direct synchronous `localStorage` read. `OrderConfirmation.tsx` is structurally unchanged (still a one-time receipt from router state) but, for a signed-in checkout, now displays the exact record just written to the backend. Guest checkout still can't persist an order — the `orders` table's RLS insert policy only allows a signed-in user to write their own row, unchanged this phase — same pre-existing limitation, now enforced by the database rather than by `Checkout.tsx` skipping a local write. `src/test/fakeSupabaseAuth.ts` gained an `orders` table (no seed data — orders only exist once a real checkout creates one). New tests `Checkout.test.tsx`/`Account.test.tsx`; `checkout.test.ts` rewritten for the synchronous `buildOrder()`. |
+| 29 | Inventory | New `lib/inventory.ts` — pure stock helpers (`isOutOfStock`, `isLowStock`, `maxPurchasableQuantity`, `checkStockForLines`, shared `MAX_CART_QTY`) built around `Product.stock` (on the type since an earlier phase, now actually load-bearing instead of "architecture only"). `ProductDetail.tsx`/`ProductCard.tsx`/`Cart.tsx` show low/out-of-stock states and cap quantity against real stock (fetched live, since `CartProvider.tsx` itself still only joins the static catalog); `Checkout.tsx` runs a final `checkStockForLines()` re-check against a fresh fetch right before submitting, blocking with an itemized error if stock changed. New `orders_decrement_stock` trigger (`security definer`, `supabase/schema.sql`) is the actual atomic guarantee — row-locks, re-checks, and decrements each tracked line's stock inside the order insert's own transaction, so a concurrent race for the last unit can't oversell; requires Jude to run the updated schema once. `ProductManager.tsx`'s existing Stock field gained validation and the product list shows an in-stock/out-of-stock indicator. New tests `lib/inventory.test.ts`/`Cart.test.tsx`; stock-aware cases added to `ProductDetail.test.tsx`/`Checkout.test.tsx`/`productValidation.test.ts`. |
 
 ## Remaining Phases
 
@@ -814,9 +839,10 @@ have matching `.test.ts` files.
 
 React Context, no external state library:
 - `CartContext`/`CartProvider` — cart lines, persisted to `localStorage`
-  (namespaced key via `storageKey('cart')`); `MAX_QTY` = 10, hardcoded
-  constant (no per-product stock field exists yet — see Known Issues,
-  tracked in `ROADMAP.md` Phase 29 — Inventory).
+  (namespaced key via `storageKey('cart')`); the generic `MAX_CART_QTY`
+  (= 10, moved to `lib/inventory.ts` in Phase 29) sanity cap still lives
+  here, but real per-product stock limits (`Product.stock`) are enforced
+  by the pages with live catalog data instead — see Known Issues.
 - `WishlistContext`/`WishlistProvider` — stores product ids only, joins
   product data from `ALL_PRODUCTS` at read time; same
   read-on-init/write-on-change persistence pattern as Cart.
@@ -894,9 +920,13 @@ for CI/deploy environments.
   what's still simulated is payment itself — there's no real charge, just
   a chosen payment method stored on the order. Scheduled as `ROADMAP.md`
   Phase 31 (Payments).
-- **`MAX_QTY` (10) is a hardcoded constant** in `CartProvider.tsx` — no
-  per-product stock/inventory field exists on `Product` yet. Scheduled as
-  `ROADMAP.md` Phase 29 (Inventory).
+- **~~`MAX_QTY` (10) is a hardcoded constant...~~ — resolved in Phase
+  29.** `Product.stock` now gates real purchasing throughout the
+  storefront and checkout (`lib/inventory.ts`), backed by an atomic
+  decrement trigger in `supabase/schema.sql`. The generic `MAX_CART_QTY`
+  sanity cap (renamed, same value) still exists in `CartProvider.tsx`
+  alongside it — see the next bullet for the remaining gap this didn't
+  close.
 - **`iconRegistry`/`CraftIcon` naming** reads as craft-specific; a cosmetic
   rename to `CategoryIcon`/`iconRegistry` semantics was proposed in Phase
   8A but not done. Not currently scheduled.
@@ -948,9 +978,15 @@ for CI/deploy environments.
   Explicitly out of scope for both Phase 19 (its Completion Criteria
   named only `FEATURED_PRODUCTS`/`BEST_SELLERS`/`NEW_ARRIVALS`) and
   Phase 27 (Products, backend-integrated — scoped to Product Manager/
-  Shop/homepage product fetching only, per `ROADMAP.md`). Not currently
-  scheduled; revisit if these three become a source of visible drift in
-  practice.
+  Shop/homepage product fetching only, per `ROADMAP.md`). Phase 29
+  (Inventory) worked around this for *stock* specifically, without
+  closing the underlying gap — `ProductDetail.tsx`/`Cart.tsx`/
+  `Checkout.tsx` each fetch the live catalog themselves at the moments
+  real stock actually matters (add, adjust quantity, submit), so stock
+  numbers shown/enforced are fresh even though `CartProvider.tsx` itself
+  still joins `line.product`'s name/price/image from the static catalog.
+  Not currently scheduled; revisit if these three become a source of
+  visible drift in practice.
 - **`lib/adminStats.ts`'s dashboard product count and
   `lib/categoriesStore.ts`'s `countProductsInCategory()` (the Category
   Manager delete-guard) read a deprecated, non-persistent in-memory
@@ -1049,6 +1085,20 @@ for CI/deploy environments.
   sectionSpacing combinations are exercised** — the full combinatorial
   space is larger and reachable by authoring a custom `TemplatePreset`,
   just not pre-built/tested as a named preset. Not currently scheduled.
+- **The `orders_decrement_stock` trigger (Phase 29,
+  `supabase/schema.sql`) isn't exercised by the JS test suite** — it's
+  SQL, not app code, same pattern as this project's RLS policies. The
+  atomic-guarantee behavior (e.g. two concurrent checkouts racing for
+  the last unit of a `stock = 1` product) needs manual verification
+  against a real Supabase project, not a unit test. `Checkout.tsx`'s own
+  `checkStockForLines()` pre-check *is* covered by `Checkout.test.tsx`.
+- **No stock-change audit trail or admin restock notification (Phase
+  29).** An admin editing stock in Product Manager, or the decrement
+  trigger firing on an order, are both silent — nothing surfaces "this
+  product just sold out" beyond the storefront's own out-of-stock badge
+  on next view. Not currently scheduled; would need a deliberate
+  decision if wanted (e.g. an admin dashboard low-stock widget, an email
+  notification).
 
 ## Technical Debt
 
@@ -1356,8 +1406,16 @@ sections of each of the four policy pages
 
 ## Testing Status
 
-Vitest + Testing Library. **437 tests / 69 files**, all passing (up from
-266/46 at the start of Phase 21). Coverage concentrated on context/state
+Vitest + Testing Library. **475 tests / 74 files**, all passing (up from
+266/46 at the start of Phase 21). New in Phase 29: `lib/inventory.test.ts`
+(full coverage of every pure stock helper) and `pages/Cart.test.tsx` (new
+file — low-stock note, exceeds-stock warning with checkout disabled,
+out-of-stock, untracked-stock passthrough), plus stock-aware cases added
+to `pages/ProductDetail.test.tsx` (capped stepper, out-of-stock disable,
+untracked passthrough), `pages/Checkout.test.tsx` (blocked submission
+with an itemized error vs. normal placement when stock is sufficient),
+and `lib/productValidation.test.ts` (stock must be a non-negative whole
+number when provided). Coverage concentrated on context/state
 logic and `lib/` utilities, plus Login and Home page flows, plus the
 preset registry's shape/uniqueness/value-validity. New in Phase 23: `lib/
 policySettingsStore.test.ts` (empty-override resolves to `POLICY_PAGES`,
@@ -1521,9 +1579,7 @@ Pre-release. See `docs/CHANGELOG.md`.
 
 ## Next Phase
 
-**Phase 26 — Authentication (Backend-Integrated).** Full specification
-lives in `docs/ROADMAP.md`. Replaces mock `AuthProvider` with real
-Supabase Auth via Phase 25's `lib/api/auth.ts`.
+See `docs/ROADMAP.md`'s Status section for the next unfinished phase.
 
 ## Developer Notes
 

@@ -6,6 +6,7 @@ import { ProductDetail } from "@/pages/ProductDetail";
 import { ALL_PRODUCTS } from "@/data/products";
 import { renderWithProviders } from "@/test/utils";
 import { fakeSupabase } from "@/test/fakeSupabaseAuth";
+import { apiSaveProduct } from "@/lib/api/products";
 
 const FIRST_PRODUCT = ALL_PRODUCTS[0];
 
@@ -92,5 +93,39 @@ describe("ProductDetail", () => {
     renderAt(FIRST_PRODUCT.id);
     await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
     expect(screen.queryByRole("button", { name: `View full-size image of ${FIRST_PRODUCT.name}` })).not.toBeInTheDocument();
+  });
+
+  it("shows a low-stock note and caps the quantity stepper at the real stock ceiling", async () => {
+    await apiSaveProduct({ ...FIRST_PRODUCT, stock: 3 });
+    const user = userEvent.setup();
+    renderAt(FIRST_PRODUCT.id);
+    await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
+
+    await screen.findByText("Only 3 left in stock");
+    const increase = screen.getByRole("button", { name: `Increase quantity of ${FIRST_PRODUCT.name}` });
+    await user.click(increase);
+    await user.click(increase);
+    // Now at 3 (the stock ceiling) - the increase button should be disabled.
+    expect(increase).toBeDisabled();
+  });
+
+  it("disables Add to cart and shows 'Out of stock' when stock has hit 0", async () => {
+    await apiSaveProduct({ ...FIRST_PRODUCT, stock: 0 });
+    renderAt(FIRST_PRODUCT.id);
+    await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
+
+    const outOfStockButton = await screen.findByRole("button", { name: "Out of stock" });
+    expect(outOfStockButton).toBeDisabled();
+  });
+
+  it("allows adding to cart normally when stock is untracked", async () => {
+    const user = userEvent.setup();
+    renderAt(FIRST_PRODUCT.id);
+    await screen.findByRole("heading", { name: FIRST_PRODUCT.name });
+
+    const addButton = screen.getByRole("button", { name: "Add to cart" });
+    expect(addButton).not.toBeDisabled();
+    await user.click(addButton);
+    await screen.findByText(/added .* to your cart/i);
   });
 });

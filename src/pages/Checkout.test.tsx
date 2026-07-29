@@ -7,6 +7,7 @@ import { ALL_PRODUCTS } from "@/data/products";
 import { storageKey } from "@/config/branding";
 import { renderWithProviders } from "@/test/utils";
 import { fakeSupabase } from "@/test/fakeSupabaseAuth";
+import { apiSaveProduct } from "@/lib/api/products";
 
 const [PRODUCT_A] = ALL_PRODUCTS;
 
@@ -97,5 +98,37 @@ describe("Checkout", () => {
 
     const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "guest@example.com").order("placed_at");
     expect(data).toHaveLength(0);
+  });
+
+  it("blocks submission and shows an itemized error when a cart line now exceeds live stock", async () => {
+    await apiSaveProduct({ ...PRODUCT_A, stock: 0 });
+
+    const user = userEvent.setup();
+    renderWithProviders(<TestApp />, ["/checkout"]);
+
+    await screen.findByRole("heading", { name: "Checkout" });
+    await fillRequiredFields(user, "Jude Tambago", "jude@example.com");
+    await user.click(screen.getByRole("button", { name: "Place order" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("no longer available in the quantity you selected");
+    expect(alert.textContent).toContain(PRODUCT_A.name);
+    expect(screen.getByRole("heading", { name: "Checkout" })).toBeInTheDocument();
+
+    const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "jude@example.com").order("placed_at");
+    expect(data).toHaveLength(0);
+  });
+
+  it("places the order normally when stock is sufficient", async () => {
+    await apiSaveProduct({ ...PRODUCT_A, stock: 5 });
+
+    const user = userEvent.setup();
+    renderWithProviders(<TestApp />, ["/checkout"]);
+
+    await screen.findByRole("heading", { name: "Checkout" });
+    await fillRequiredFields(user, "Jude Tambago", "jude@example.com");
+    await user.click(screen.getByRole("button", { name: "Place order" }));
+
+    await screen.findByText("Order confirmed");
   });
 });

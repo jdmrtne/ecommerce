@@ -5,9 +5,9 @@ import type { CartLine } from "@/context/CartContext";
 import { ALL_PRODUCTS } from "@/data/products";
 import type { CartItem } from "@/types/cart";
 import { storageKey } from "@/config/branding";
+import { MAX_CART_QTY as MAX_QTY } from "@/lib/inventory";
 
 const STORAGE_KEY = storageKey("cart");
-const MAX_QTY = 10;
 
 function getInitialItems(): CartItem[] {
   if (typeof window === "undefined") return [];
@@ -37,6 +37,19 @@ function getInitialItems(): CartItem[] {
  * pattern as useTheme.ts, so the cart survives a refresh. Cart items only
  * store { productId, quantity } - product data (name/price/etc) is joined
  * from ALL_PRODUCTS at read time via `lines`, not duplicated into storage.
+ *
+ * Phase 29 - Inventory. This provider still only enforces the generic
+ * `MAX_CART_QTY` sanity cap (now sourced from `lib/inventory.ts`, not a
+ * real stock ceiling) - it has no network access to the live catalog and
+ * isn't the right layer to fetch it just for this. Real stock-aware
+ * limits are enforced by the pages that already hold live product data:
+ * `ProductDetail.tsx` (via `maxPurchasableQuantity()`) caps how much can
+ * be added in the first place, `Cart.tsx` caps each line's quantity
+ * stepper against freshly-fetched stock, and `Checkout.tsx` runs a final
+ * `checkStockForLines()` gate against a fresh fetch right before
+ * submitting. See `MASTER_HANDOFF.md`'s Known Issues for why this
+ * provider still joins from the static `ALL_PRODUCTS` rather than the
+ * backend (a pre-existing gap, out of this phase's scope).
  */
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>(getInitialItems);

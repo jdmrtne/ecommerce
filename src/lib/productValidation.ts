@@ -4,6 +4,8 @@ export interface ProductFormValues {
   price: number;
   rating: number;
   description: string;
+  /** Optional - `undefined` means untracked/unlimited stock, not "empty". See `stock`'s error below. */
+  stock?: number;
 }
 
 export interface ProductFormErrors {
@@ -12,6 +14,7 @@ export interface ProductFormErrors {
   price?: string;
   rating?: string;
   description?: string;
+  stock?: string;
 }
 
 /**
@@ -21,8 +24,15 @@ export interface ProductFormErrors {
  * always render name/price/rating/description, and `category` has to
  * match a real category for the Shop filter and breadcrumb to make
  * sense. Everything else on `Product` (tag, salesRank, details, images,
- * variants, stock, tags) is optional free-form data with no downstream
- * parsing that would break on an empty value.
+ * variants, tags) is optional free-form data with no downstream parsing
+ * that would break on an empty value.
+ *
+ * `stock` is the one exception (Phase 29 - Inventory): once set, it
+ * gates real purchasing (`lib/inventory.ts`, `Checkout.tsx`'s stock
+ * check, and the `orders_decrement_stock` DB trigger), so a garbage
+ * value here would silently block or wrongly allow checkouts. It stays
+ * optional - `undefined` is the valid "unlimited/untracked" state, not
+ * an error - but *if provided* it must be a non-negative whole number.
  */
 export function validateProduct(values: ProductFormValues): ProductFormErrors {
   const errors: ProductFormErrors = {};
@@ -33,5 +43,8 @@ export function validateProduct(values: ProductFormValues): ProductFormErrors {
     errors.rating = "Rating must be between 0 and 5.";
   }
   if (!values.description.trim()) errors.description = "Description is required.";
+  if (values.stock !== undefined && (!Number.isInteger(values.stock) || values.stock < 0)) {
+    errors.stock = "Stock must be a whole number, 0 or greater.";
+  }
   return errors;
 }

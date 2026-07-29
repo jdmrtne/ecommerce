@@ -39,4 +39,16 @@ describe("validateProduct", () => {
   it("requires a description", () => {
     expect(validateProduct({ ...VALID, description: "  " }).description).toBeDefined();
   });
+
+  it("allows stock to be omitted (untracked/unlimited)", () => {
+    expect(validateProduct(VALID).stock).toBeUndefined();
+  });
+
+  it("requires stock, when provided, to be a non-negative whole number", () => {
+    expect(validateProduct({ ...VALID, stock: -1 }).stock).toBeDefined();
+    expect(validateProduct({ ...VALID, stock: 1.5 }).stock).toBeDefined();
+    expect(validateProduct({ ...VALID, stock: NaN }).stock).toBeDefined();
+    expect(validateProduct({ ...VALID, stock: 0 }).stock).toBeUndefined();
+    expect(validateProduct({ ...VALID, stock: 12 }).stock).toBeUndefined();
+  });
 });

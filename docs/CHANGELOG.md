@@ -6,6 +6,78 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Phase 29 — Inventory
+
+Real stock tracking, replacing the hardcoded `MAX_QTY` cart cap:
+`Product.stock` (present on the type since an earlier phase, but
+"architecture only" until now) is wired all the way through Product
+Manager → the storefront → checkout → an atomic backend decrement.
+`undefined` stock still means untracked/unlimited, not 0 - a
+white-label store that doesn't set it anywhere sees no behavior change.
+
+### Added
+- `lib/inventory.ts` - pure, shared stock helpers: `isStockTracked`,
+  `availableStock`, `isOutOfStock`, `isLowStock`,
+  `maxPurchasableQuantity` (accounts for quantity already in the cart),
+  `checkStockForLines` (the pre-checkout gate), and the
+  `MAX_CART_QTY`/`LOW_STOCK_THRESHOLD` constants.
+- `supabase/schema.sql`: `orders_decrement_stock` trigger
+  (`security definer`, `after insert on orders`) - the actual atomic
+  guarantee against overselling. Row-locks each order line's product,
+  re-checks stock, raises (rolling back the whole order) if
+  insufficient, decrements if not - all inside the order insert's own
+  transaction, so concurrent checkouts for the last unit serialize on
+  the lock instead of both succeeding. **Jude needs to run the updated
+  schema once**, same as the Media backend phase; it's additive and
+  safe to re-run.
+- Low/out-of-stock UI: an "Out of stock" badge on `ProductCard.tsx`
+  (dimmed image); a matching badge plus a low-stock note and a
+  stock-capped Add-to-cart on `ProductDetail.tsx`; per-line
+  out-of-stock/low-stock/"only N available" notes and a
+  stock-capped quantity stepper on `Cart.tsx`, which also disables
+  "Proceed to checkout" while any line exceeds live stock; an itemized
+  inline alert on `Checkout.tsx` if a final live-stock re-check right
+  before submit finds a line that no longer fits, with a link back to
+  `/cart`.
+- `ProductManager.tsx`'s existing Stock field gains real validation
+  (must be a non-negative whole number when provided) and clarified
+  hint text; the product list rows now show an in-stock/out-of-stock
+  count.
+- New test files: `lib/inventory.test.ts`, `pages/Cart.test.tsx`.
+
+### Changed
+- `CartProvider.tsx` now imports its quantity cap (`MAX_CART_QTY`) from
+  `lib/inventory.ts` instead of a private local constant - same value,
+  same behavior, single source of truth shared with the real stock
+  ceiling. It still doesn't fetch the live catalog itself (no access to
+  it at that layer); the pages that already hold live product data
+  (`ProductDetail`, `Cart`, `Checkout`) are what actually enforce real
+  stock limits.
+- `productValidation.ts` gained an optional `stock` field/error.
+- `types/product.ts`'s doc comment on `stock` updated to reflect that
+  it's now load-bearing, not architecture-only.
+- `pages/ProductDetail.test.tsx`, `pages/Checkout.test.tsx`, and
+  `lib/productValidation.test.ts` gained stock-aware test cases
+  (low-stock note + capped stepper, out-of-stock disable, stock-
+  exhausted checkout blocked with an itemized error vs. normal
+  placement, stock validation).
+
+### Known Issues carried forward
+- `CartProvider.tsx` still joins cart lines from the static
+  `ALL_PRODUCTS` catalog for price/name/image (pre-existing, see
+  `MASTER_HANDOFF.md`) - this phase worked around that gap rather than
+  closing it, by having the pages that need fresh stock fetch it
+  themselves at the moments that matter (add, adjust quantity, submit).
+- The `orders_decrement_stock` trigger is SQL, not exercised by the JS
+  test suite - same pattern as this project's RLS policies. Needs
+  manual verification against a real Supabase project.
+- No stock-change audit trail or admin restock notification; out of
+  this phase's scope.
+
+### QA
+- `tsc -b`, `vite build`, `npx oxlint src`, and `npm test` (475/475
+  tests, 74 files) all pass clean.
+
 ## Media (Backend-Integrated)
 
 Requested directly (not the next `ROADMAP.md` phase, which remains 29 —

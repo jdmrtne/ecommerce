@@ -10,8 +10,8 @@ shipped.
 
 ## Status
 
-- **Last completed phase:** 28 — Orders (Backend-Integrated)
-- **Next phase to start:** 29 — Inventory
+- **Last completed phase:** 29 — Inventory
+- **Next phase to start:** 30 — not yet scoped. Ask Jude what's next before starting anything.
 - **Rule:** complete ONE phase per session, then stop and wait for approval.
 - **Note:** a cross-device settings sync feature (`site_settings` table,
   `lib/api/settings.ts`, `lib/settingsSync.ts`) exists in the codebase
@@ -25,8 +25,7 @@ shipped.
   these phases. `lib/mediaStore.ts` (Phase 24's `localStorage` store) is
   gone; media now goes through a real public Supabase Storage bucket
   (`lib/api/media.ts`, `supabase/schema.sql`). See `CHANGELOG.md`'s
-  "Media (Backend-Integrated)" entry for full detail. Phase 29 below is
-  still the next *numbered* phase to pick up.
+  "Media (Backend-Integrated)" entry for full detail.
 
 ---
 
@@ -609,7 +608,7 @@ submission.
 
 ---
 
-### Phase 29 — Inventory
+### Phase 29 — Inventory *(COMPLETE)*
 
 **Objective:** Real stock tracking per product, replacing the hardcoded
 `MAX_QTY` constant.
@@ -625,6 +624,91 @@ submission.
 
 **Completion Criteria:**
 - Build/lint/tests pass; tests cover stock-exhausted edge cases.
+
+**Outcome:**
+- New `lib/inventory.ts` - pure, shared helpers (`isStockTracked`,
+  `availableStock`, `isOutOfStock`, `isLowStock`, `maxPurchasableQuantity`,
+  `checkStockForLines`, and the `MAX_CART_QTY`/`LOW_STOCK_THRESHOLD`
+  constants) built around `Product.stock` (already on the type since an
+  earlier phase, but "architecture only" until now - see updated doc
+  comment on the field). `undefined` stock means untracked/unlimited, not
+  0, everywhere these helpers are used - a white-label store that
+  doesn't care about inventory sees no behavior change.
+- `CartProvider.tsx` now imports `MAX_CART_QTY` from `lib/inventory.ts`
+  instead of a private local constant (pure refactor, same cap, same
+  tests) - it still only enforces that generic sanity cap itself, since
+  it has no live catalog access; real stock limits are enforced by the
+  pages that do:
+  - `ProductDetail.tsx` caps the quantity stepper and Add-to-cart at
+    `maxPurchasableQuantity()` (accounting for what's already in the
+    cart), disables Add-to-cart with an "Out of stock" label when
+    depleted, shows "You already have all N available in your cart"
+    when the cart already holds the ceiling, and a low-stock note near
+    the price.
+  - `ProductCard.tsx` shows a dimmed/grayscale image with an "Out of
+    stock" badge for a depleted tracked product (Shop grid, homepage
+    sections, related products).
+  - `Cart.tsx` fetches the live catalog on mount (fails open - no
+    blocking error state - if that fetch fails) to look up real stock
+    per line, caps each line's quantity stepper at it, shows an
+    out-of-stock/low-stock/"only N available, please lower the
+    quantity" note per line, and disables "Proceed to checkout" with a
+    summary note whenever any line currently exceeds live stock.
+  - `Checkout.tsx`'s `handleSubmit` re-fetches the live catalog and
+    runs `checkStockForLines()` right before building/saving the order -
+    the real last-mile check, since stock could have changed since the
+    cart page loaded (another shopper, an admin edit). Any issues stop
+    the submit with an itemized inline alert (`role="alert"`) listing
+    each affected item's available vs. requested quantity and a link
+    back to `/cart`; nothing is built or saved in that case.
+- `supabase/schema.sql` gets a new `orders_decrement_stock` trigger
+  (`security definer`, `after insert on orders`) that is the actual
+  atomic guarantee: for each order line whose product has tracked stock,
+  it row-locks (`for update`), re-checks there's still enough, raises
+  (rolling back the whole order) if not, and decrements if so - all
+  inside the same transaction as the insert, so two shoppers racing for
+  the last unit serialize on the lock instead of both succeeding.
+  `Checkout.tsx`'s client-side check above is the friendly warning
+  shown before attempting the write; this trigger is what actually
+  can't be raced around. **Jude needs to run the updated
+  `supabase/schema.sql` once** (same as the Media backend phase) for
+  this trigger to exist on the live project - it's additive/idempotent
+  (`create or replace function` + `drop trigger if exists` guard), safe
+  to run again.
+- `ProductManager.tsx`'s existing Stock field (present since an earlier
+  phase, previously unvalidated free text) now shows a validation error
+  via `productValidation.ts`'s new rule (must be a non-negative whole
+  number when provided; blank stays valid = untracked), has clarified
+  hint text explaining what blank vs. 0 now mean, and the product list
+  rows show an in-stock/out-of-stock count next to the rating.
+- New tests: `lib/inventory.test.ts` (full coverage of every pure
+  helper), `pages/Cart.test.tsx` (new file - low-stock note, exceeds-
+  stock warning with checkout disabled, out-of-stock, untracked-stock
+  passthrough), stock-aware cases added to `pages/ProductDetail.test.tsx`
+  and `pages/Checkout.test.tsx` (blocked submission with itemized error
+  vs. normal placement), and stock validation cases added to
+  `lib/productValidation.test.ts`.
+
+**Known Issues carried forward:**
+- **`CartProvider.tsx` still joins cart lines from the static
+  `ALL_PRODUCTS` catalog**, not the backend (pre-existing, see
+  `MASTER_HANDOFF.md`) - this phase deliberately worked around that gap
+  rather than closing it, by having `ProductDetail`/`Cart`/`Checkout`
+  fetch live stock themselves at the points that actually need it. A
+  cart line's *price/name/image* can still be stale relative to the
+  backend between those pages; only *stock* is now guaranteed fresh at
+  the moments that matter (adding, adjusting quantity, submitting).
+- **The `orders_decrement_stock` trigger isn't exercised by the JS test
+  suite** (it's SQL, not app code) - same pattern as this project's RLS
+  policies. It needs manual verification against a real Supabase
+  project (e.g. two browser sessions racing to buy the last unit of a
+  stock=1 product) rather than a unit test.
+- **No stock-change audit trail or admin restock notification** - an
+  admin editing stock in Product Manager or the decrement trigger firing
+  are both silent; nothing surfaces "this product just sold out" beyond
+  the storefront's own out-of-stock badge next visit. Out of this
+  phase's scope; would need a deliberate decision if wanted (e.g. an
+  admin dashboard low-stock widget, an email notification).
 
 ---
 

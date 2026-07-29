@@ -12,6 +12,7 @@ import { EmptyState, ErrorState } from "@/components/ui/StateMessage";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { AssetPicker } from "@/components/admin/AssetPicker";
 import { formatPHP } from "@/lib/currency";
+import { isLowStock, isOutOfStock } from "@/lib/inventory";
 import { resolveAllCategories } from "@/lib/categoriesStore";
 import { generateProductId } from "@/lib/productsStore";
 import { validateProduct } from "@/lib/productValidation";
@@ -238,6 +239,7 @@ export function ProductManager() {
       price: Number(form.price),
       rating: Number(form.rating),
       description: form.description,
+      stock: form.stock.trim() ? Number(form.stock) : undefined,
     });
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
@@ -365,6 +367,19 @@ export function ProductManager() {
                 <p className="hidden shrink-0 text-sm text-ink-soft sm:block">
                   {product.rating.toFixed(1)} &#9733;
                 </p>
+                {typeof product.stock === "number" && (
+                  <p
+                    className={
+                      isOutOfStock(product)
+                        ? "hidden shrink-0 text-xs font-semibold text-error sm:block"
+                        : isLowStock(product)
+                          ? "hidden shrink-0 text-xs font-semibold text-bloom-deep sm:block"
+                          : "hidden shrink-0 text-xs text-ink-soft sm:block"
+                    }
+                  >
+                    {isOutOfStock(product) ? "Out of stock" : `${product.stock} in stock`}
+                  </p>
+                )}
                 <p className="shrink-0 font-display text-base text-denim-deep">{formatPHP(product.price)}</p>
                 <div className="flex shrink-0 items-center gap-1">
                   <button
@@ -473,7 +488,8 @@ export function ProductManager() {
               label="Stock"
               value={form.stock}
               onChange={(e) => updateField("stock", e.target.value)}
-              hint="Optional."
+              error={errors.stock}
+              hint="Leave blank for unlimited/untracked stock. Set to 0 to mark as out of stock."
             />
           </div>
 

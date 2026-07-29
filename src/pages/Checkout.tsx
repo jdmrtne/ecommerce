@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { SectionHeading } from "@/components/ui/SectionHeading";
@@ -15,6 +15,9 @@ import {
 } from "@/lib/checkout";
 import type { CheckoutErrors } from "@/lib/checkout";
 import { apiSaveOrderForUser } from "@/lib/api/orders";
+import { apiGetProducts } from "@/lib/api/products";
+import { checkStockForLines } from "@/lib/inventory";
+import type { StockIssue } from "@/lib/inventory";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import type { CheckoutFormData } from "@/types/order";
@@ -52,6 +55,16 @@ const BLANK_FORM: Omit<CheckoutFormData, "fullName" | "email"> = {
  * it does not clear the cart or navigate to the confirmation page, since
  * nothing was actually saved.
  *
+ * Phase 29 - Inventory. Right before that write, `handleSubmit` re-fetches
+ * the live catalog and runs `checkStockForLines()` against it - a last
+ * check in case stock changed since the cart page was loaded (another
+ * shopper bought the last unit, an admin edited it, etc.). If anything
+ * fails that check the submit stops there with an itemized inline error
+ * and no order is built or saved; the actual atomic guarantee against a
+ * concurrent race is the `orders_decrement_stock` trigger in
+ * `supabase/schema.sql`, this is just the friendly version of the same
+ * rule shown before the write is attempted.
+ *
  * `placedOrder` guards the empty-cart redirect against a race with the
  * post-submit navigate to /order-confirmation: clearCart() empties `lines`
  * a render before the navigate actually takes effect, and without the
@@ -73,6 +86,7 @@ export function Checkout() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [placedOrder, setPlacedOrder] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [stockIssues, setStockIssues] = useState<StockIssue[]>([]);
 
   useEffect(() => {
     if (lines.length === 0 && !placedOrder) {
@@ -91,9 +105,18 @@ export function Checkout() {
     if (Object.keys(validationErrors).length > 0) return;
 
     setSubmitError(null);
+    setStockIssues([]);
     setIsSubmitting(true);
-    const order = buildOrder(form, lines, subtotal);
     try {
+      const liveProducts = await apiGetProducts();
+      const issues = checkStockForLines(liveProducts, lines);
+      if (issues.length > 0) {
+        setStockIssues(issues);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const order = buildOrder(form, lines, subtotal);
       if (user) {
         await apiSaveOrderForUser(user.email, order);
       }
@@ -245,6 +268,22 @@ export function Checkout() {
             <span className="font-semibold text-ink">Total</span>
             <span className="font-display text-xl text-denim-deep">{formatPHP(total)}</span>
           </div>
+          {stockIssues.length > 0 && (
+            <div role="alert" className="mt-4 rounded-md border-2 border-error/40 bg-error/5 p-4 text-sm text-error">
+              <p className="font-semibold">Some items are no longer available in the quantity you selected:</p>
+              <ul className="mt-2 list-disc pl-5">
+                {stockIssues.map((issue) => (
+                  <li key={issue.productId}>
+                    {issue.name} &mdash; {issue.available > 0 ? `only ${issue.available} left` : "out of stock"} (you
+                    have {issue.requested} in your cart)
+                  </li>
+                ))}
+              </ul>
+              <Link to="/cart" className="mt-2 inline-block font-semibold underline">
+                Update your cart
+              </Link>
+            </div>
+          )}
           {submitError && <p className="mt-4 text-sm text-error">{submitError}</p>}
           <Button type="submit" size="lg" isLoading={isSubmitting} className="mt-6 w-full">
             Place order

@@ -15,6 +15,7 @@ import { resolveCategoryById } from "@/lib/categoriesStore";
 import { apiGetProducts } from "@/lib/api/products";
 import { setProductsCache } from "@/lib/productsStore";
 import { formatPHP } from "@/lib/currency";
+import { isLowStock, isOutOfStock, maxPurchasableQuantity } from "@/lib/inventory";
 import { useCart } from "@/context/CartContext";
 import { EMPTY_STATES, ERROR_STATES, LOADING } from "@/content/states";
 import { useSiteMeta } from "@/hooks/useSiteMeta";
@@ -25,7 +26,7 @@ type FetchStatus = "loading" | "success" | "error";
 export function ProductDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { addItem } = useCart();
+  const { items, addItem } = useCart();
 
   const [status, setStatus] = useState<FetchStatus>("loading");
   const [product, setProduct] = useState<Product | undefined>(undefined);
@@ -72,7 +73,10 @@ export function ProductDetail() {
 
   function handleAddToCart() {
     if (!product) return;
-    addItem(product.id, quantity);
+    const alreadyInCart = items.find((item) => item.productId === product.id)?.quantity ?? 0;
+    const maxQty = maxPurchasableQuantity(product, alreadyInCart);
+    if (maxQty <= 0) return;
+    addItem(product.id, Math.min(quantity, maxQty));
     setJustAdded(true);
   }
 
@@ -105,6 +109,13 @@ export function ProductDetail() {
   const related = catalog
     .filter((p) => p.category === product.category && p.id !== product.id)
     .slice(0, 4);
+
+  const alreadyInCart = items.find((item) => item.productId === product.id)?.quantity ?? 0;
+  const maxQty = maxPurchasableQuantity(product, alreadyInCart);
+  const outOfStock = isOutOfStock(product);
+  const lowStock = isLowStock(product);
+  const atCartLimit = !outOfStock && maxQty <= 0;
+  const canAddToCart = maxQty > 0;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -167,6 +178,11 @@ export function ProductDetail() {
               {product.tag}
             </span>
           )}
+          {outOfStock && (
+            <span className="absolute left-4 top-4 rounded-full bg-ink/80 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-surface shadow-soft">
+              Out of stock
+            </span>
+          )}
         </div>
 
         {/* Info */}
@@ -183,6 +199,9 @@ export function ProductDetail() {
           </div>
 
           <p className="mt-4 font-display text-2xl text-denim-deep">{formatPHP(product.price)}</p>
+          {lowStock && (
+            <p className="mt-1 text-sm font-medium text-error">Only {product.stock} left in stock</p>
+          )}
 
           <p className="mt-5 leading-relaxed text-ink-soft">{product.description}</p>
 
@@ -198,12 +217,25 @@ export function ProductDetail() {
           )}
 
           <div className="mt-8 flex flex-wrap items-center gap-4">
-            <QuantityStepper value={quantity} onChange={setQuantity} label={`quantity of ${product.name}`} />
-            <Button size="lg" onClick={handleAddToCart} className="flex-1 sm:flex-none">
-              Add to cart
+            {canAddToCart && (
+              <QuantityStepper
+                value={Math.min(quantity, maxQty)}
+                onChange={setQuantity}
+                max={maxQty}
+                label={`quantity of ${product.name}`}
+              />
+            )}
+            <Button size="lg" onClick={handleAddToCart} className="flex-1 sm:flex-none" disabled={!canAddToCart}>
+              {outOfStock ? "Out of stock" : atCartLimit ? "Max in cart" : "Add to cart"}
             </Button>
             <WishlistButton productId={product.id} productName={product.name} size="md" />
           </div>
+
+          {atCartLimit && (
+            <p className="mt-3 text-sm text-ink-soft">
+              You already have all {product.stock} available in your cart.
+            </p>
+          )}
 
           <AnimatePresence>
             {justAdded && (

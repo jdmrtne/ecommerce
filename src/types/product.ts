@@ -38,7 +38,14 @@ export interface Product {
   images?: string[];
   /** Purchasable options (color/size/etc). Architecture only - not yet wired into cart/checkout (see Phase 8 handoff, Remaining Tasks). */
   variants?: ProductVariant[];
-  /** Units available. Architecture only - not yet wired into cart/checkout stock checks. */
+  /**
+   * Units available. Optional - `undefined` means untracked/unlimited
+   * (e.g. a made-to-order item), not "no stock". When set, it gates real
+   * purchasing: see `lib/inventory.ts` for the shared helpers, used by
+   * `ProductDetail`/`Cart`/`Checkout`'s stock-aware UI and by the
+   * `orders_decrement_stock` DB trigger (`supabase/schema.sql`) that
+   * decrements it on order placement.
+   */
   stock?: number;
   /** Free-form tags for search/merchandising, distinct from the single display `tag` badge above. */
   tags?: string[];
