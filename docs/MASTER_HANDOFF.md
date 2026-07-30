@@ -363,9 +363,43 @@ re-run. No create/edit/delete here - an admin can view but not modify a
 customer's own account fields; that's out of this phase's scope (see
 `ROADMAP.md`).
 
+**Phase 31 — Payments.** Real payment processing at checkout via
+**PayMongo** (confirmed with Jude before writing any code — this phase's
+`ROADMAP.md` entry explicitly named that as an undecided dependency).
+Only the "card" payment method is actually gateway-processed; "cod"/
+"gcash" are unchanged from every prior phase (see `lib/checkout.ts`'s doc
+comment on `PAYMENT_METHODS` for why neither needed one). The credential
+split mirrors PayMongo's own trust model: `VITE_PAYMONGO_PUBLIC_KEY` is
+client-safe and used by a new `lib/payments/paymongo.ts` to tokenize card
+details **directly against PayMongo from the browser** (raw card numbers
+never touch this app's own server); `PAYMONGO_SECRET_KEY` (no `VITE_`
+prefix, so Vite never bundles it into client code) is read only by three
+new Vercel serverless functions under `api/paymongo/` — `create-intent`,
+`attach-payment-method` (server-side attach, per PayMongo's own
+recommendation), and `payment-intent-status`. A card requiring 3D Secure
+sends the shopper's whole tab to PayMongo and back — a real navigation,
+not an SPA route change — so the already-built `Order` is stashed in
+`sessionStorage` first (`lib/payments/pendingCheckout.ts`, keyed by
+Payment Intent id) and a new `pages/CheckoutPaymentReturn.tsx`
+(`/checkout/payment-return`) is where that round trip ends: it polls the
+intent's status a few times, then finishes the checkout (save-if-signed-
+in, clear cart, navigate to confirmation) or shows an error. If the
+charge succeeds but the order-save call itself then fails — either on
+this page or on `Checkout.tsx`'s own immediate (non-3DS) success path —
+neither offers a "try again": that would risk a second charge for an
+order that was already paid for, so both show a dead-end "contact
+support, quoting this order number" message instead. `vercel.json`'s SPA
+fallback rewrite was fixed in the same phase (`/(.*)` → `/((?!api/).*)`)
+— left as-is, it would have swallowed the brand-new `/api/*` routes along
+with every other path. `tsconfig.json` gained a third `tsc -b` project
+(`tsconfig.api.json`) so the serverless functions get real type-checking
+too, not just the Vite app. Every PayMongo call in the test suite is
+mocked at the module/fetch boundary — no test makes a real network call
+to PayMongo.
+
 ## Current Phase
 
-**Phase 30 complete.** See `ROADMAP.md`'s Status section for the next
+**Phase 31 complete.** See `ROADMAP.md`'s Status section for the next
 unfinished phase.
 
 ## Completed Phases
@@ -403,6 +437,7 @@ unfinished phase.
 | 28 | Orders (Backend-Integrated) | `lib/checkout.ts`'s fake-latency `placeOrder()` is replaced with a synchronous `buildOrder()`; `Checkout.tsx` writes a signed-in shopper's order to the real `orders` table via Phase 25's `lib/api/orders.ts` (`apiSaveOrderForUser()`), with inline error handling on a failed write (cart/form preserved, no navigation) — the same per-action try/catch shape Phase 27's Product Manager established. New `hooks/useOrders.ts` (mirroring `useProducts.ts`'s loading/success/error shape) backs `Account.tsx`'s order history, which now fetches live from the backend (own loading skeleton + `ErrorState`-with-retry) instead of a direct synchronous `localStorage` read. `OrderConfirmation.tsx` is structurally unchanged (still a one-time receipt from router state) but, for a signed-in checkout, now displays the exact record just written to the backend. Guest checkout still can't persist an order — the `orders` table's RLS insert policy only allows a signed-in user to write their own row, unchanged this phase — same pre-existing limitation, now enforced by the database rather than by `Checkout.tsx` skipping a local write. `src/test/fakeSupabaseAuth.ts` gained an `orders` table (no seed data — orders only exist once a real checkout creates one). New tests `Checkout.test.tsx`/`Account.test.tsx`; `checkout.test.ts` rewritten for the synchronous `buildOrder()`. |
 | 29 | Inventory | New `lib/inventory.ts` — pure stock helpers (`isOutOfStock`, `isLowStock`, `maxPurchasableQuantity`, `checkStockForLines`, shared `MAX_CART_QTY`) built around `Product.stock` (on the type since an earlier phase, now actually load-bearing instead of "architecture only"). `ProductDetail.tsx`/`ProductCard.tsx`/`Cart.tsx` show low/out-of-stock states and cap quantity against real stock (fetched live, since `CartProvider.tsx` itself still only joins the static catalog); `Checkout.tsx` runs a final `checkStockForLines()` re-check against a fresh fetch right before submitting, blocking with an itemized error if stock changed. New `orders_decrement_stock` trigger (`security definer`, `supabase/schema.sql`) is the actual atomic guarantee — row-locks, re-checks, and decrements each tracked line's stock inside the order insert's own transaction, so a concurrent race for the last unit can't oversell; requires Jude to run the updated schema once. `ProductManager.tsx`'s existing Stock field gained validation and the product list shows an in-stock/out-of-stock indicator. New tests `lib/inventory.test.ts`/`Cart.test.tsx`; stock-aware cases added to `ProductDetail.test.tsx`/`Checkout.test.tsx`/`productValidation.test.ts`. |
 | 30 | Customers | Read-only admin customer management: new `/admin/customers` list (`Customers.tsx`, search by name/email, filter by role) and `/admin/customers/:email` detail page (`CustomerDetail.tsx`, profile fields + full order history). New `hooks/useCustomers.ts` wraps `apiGetCustomers()` (`lib/api/auth.ts` plumbing added in Phase 25, unused by any UI until now); the detail page's order history reuses `hooks/useOrders.ts` (Phase 28) as-is, pointed at another account's email. Two new admin-read RLS policies in `supabase/schema.sql` (`profiles`, `orders`) close a real gap — without them, an admin's calls under real Supabase would have silently returned nothing, since both tables' prior policies only ever let a signed-in user read their own row; requires Jude to run the updated schema once. `ADMIN_NAV` gained a "Customers" entry. New tests `hooks/useCustomers.test.ts`/`Customers.test.tsx`/`CustomerDetail.test.tsx`. No create/edit/delete — out of this phase's scope. |
+| 31 | Payments | Real payment processing at checkout via **PayMongo** (provider confirmed with Jude first). Only "card" is gateway-processed — "cod"/"gcash" are unchanged. `lib/payments/paymongo.ts` tokenizes card details directly against PayMongo from the browser with the client-safe public key; three new serverless functions under `api/paymongo/` (`create-intent`/`attach-payment-method`/`payment-intent-status`) are the only places the server-only secret key is read, creating and confirming the actual charge. A card needing 3D Secure sends the shopper's tab to PayMongo and back; the already-built order survives that round trip via `lib/payments/pendingCheckout.ts` (`sessionStorage`, keyed by Payment Intent id), and a new `CheckoutPaymentReturn.tsx` (`/checkout/payment-return`) finishes the checkout once PayMongo confirms success — or shows a deliberately non-retryable error if the charge succeeded but saving the order then failed, to avoid a double charge. `vercel.json`'s SPA rewrite was fixed to stop swallowing `/api/*`; a new `tsconfig.api.json` gives the serverless functions real type-checking. New tests across `lib/payments/`, `api/paymongo/`, `Checkout.test.tsx`, and `CheckoutPaymentReturn.test.tsx` — PayMongo itself mocked in all of them. |
 
 ## Remaining Phases
 
@@ -939,12 +974,16 @@ for CI/deploy environments.
   deletion.** Supabase Auth supports all three, but wiring them into this
   app's UI wasn't in Phase 26's brief. Not currently scheduled — revisit
   alongside a future account-management phase.
-- **~~No real checkout/payment processing~~ — partially resolved in
-  Phase 28.** "Place order" now writes a real order to the backend for a
-  signed-in checkout (`lib/api/orders.ts`'s `apiSaveOrderForUser()`);
-  what's still simulated is payment itself — there's no real charge, just
-  a chosen payment method stored on the order. Scheduled as `ROADMAP.md`
-  Phase 31 (Payments).
+- **~~No real checkout/payment processing~~ — resolved in Phase 28
+  (order persistence) and Phase 31 (actual payment processing).** "Place
+  order" writes a real order to the backend for a signed-in checkout
+  (`lib/api/orders.ts`'s `apiSaveOrderForUser()`), and a "card" checkout
+  is now a real PayMongo charge (`lib/payments/paymongo.ts`,
+  `api/paymongo/`), not a stored-but-unprocessed payment method. See the
+  Phase 31 entry above and its own carried-forward known issues (3DS
+  poll timeout, GCash still trust-based rather than PayMongo's e-wallet
+  Source API, no in-app refund flow) for what's still open in Payments
+  specifically.
 - **~~`MAX_QTY` (10) is a hardcoded constant...~~ — resolved in Phase
   29.** `Product.stock` now gates real purchasing throughout the
   storefront and checkout (`lib/inventory.ts`), backed by an atomic
@@ -1442,8 +1481,18 @@ sections of each of the four policy pages
 
 ## Testing Status
 
-Vitest + Testing Library. **475 tests / 74 files**, all passing (up from
-266/46 at the start of Phase 21). New in Phase 29: `lib/inventory.test.ts`
+Vitest + Testing Library. **537 tests / 83 files**, all passing (up from
+266/46 at the start of Phase 21). New in Phase 31: `lib/payments/
+paymongo.test.ts` and `lib/payments/pendingCheckout.test.ts` (the new
+client-side PayMongo helpers and the 3DS-survival sessionStorage
+bridge), `api/paymongo/create-intent.test.ts`/`attach-payment-method
+.test.ts`/`payment-intent-status.test.ts` (the three new serverless
+functions, with `process.env`/`fetch` stubbed — no real PayMongo call),
+`pages/CheckoutPaymentReturn.test.tsx` (new file — succeeded/failed/
+missing-pending-data/order-save-failed cases), `validateCard`/
+`pesosToCentavos` cases added to `lib/checkout.test.ts`, and new card-
+payment cases (immediate success, 3DS redirect, decline, client-side
+validation) added to `pages/Checkout.test.tsx`. New in Phase 29: `lib/inventory.test.ts`
 (full coverage of every pure stock helper) and `pages/Cart.test.tsx` (new
 file — low-stock note, exceeds-stock warning with checkout disabled,
 out-of-stock, untracked-stock passthrough), plus stock-aware cases added

@@ -6,6 +6,105 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Phase 31 — Payments
+
+Real payment processing at checkout, replacing what was otherwise still
+a simulated "place order" submission for anyone paying upfront.
+Provider: **PayMongo**, confirmed with Jude before writing any code (this
+phase's roadmap entry explicitly called for that decision up front) —
+test-mode credentials only, env-var-driven, no keys hardcoded anywhere.
+
+"cod"/"gcash" are functionally unchanged: neither was ever meant to be
+gateway-processed in this app (cash on delivery has nothing to process
+upfront; GCash/bank transfer here means paying ahead outside the app on
+trust, same as before this phase), so both still build and save the
+order immediately, no gateway call. "card" is new, and is the only
+method that actually runs through PayMongo end to end.
+
+### Added
+- `types/payment.ts` — `CardDetails`, `PaymentIntentStatus`,
+  `AttachPaymentMethodResult`; `types/order.ts`'s `PaymentMethod` gained
+  `"card"`.
+- `lib/checkout.ts` — `PAYMENT_METHODS` gained a `"card"` entry;
+  `validateCard()` (format-only client-side validation: length,
+  digits-only, expiry not already passed, CVC shape — the card network
+  itself is still the real source of truth); `pesosToCentavos()`.
+- `lib/payments/paymongo.ts` — client-side PayMongo integration.
+  `createPaymentMethod()` tokenizes raw card details **directly against
+  PayMongo from the browser** using the public key, so card numbers
+  never pass through this app's own server. `createPaymentIntent()`,
+  `attachPaymentMethod()`, and `retrievePaymentIntent()` instead call
+  this app's own new `/api/paymongo/*` functions, since those three
+  operations need the secret key.
+- `lib/payments/pendingCheckout.ts` — a `sessionStorage` bridge for the
+  one case where in-memory state can't survive: a card that needs 3D
+  Secure sends the shopper's whole tab to PayMongo and back (a real
+  navigation, not an SPA route change), so the already-built `Order` is
+  stashed here first, keyed by Payment Intent id.
+- `api/paymongo/` — three new Vercel serverless functions, the only
+  places `PAYMONGO_SECRET_KEY` is ever read: `create-intent.ts`
+  (creates a PHP Payment Intent, card-only, `request_three_d_secure:
+  "any"`), `attach-payment-method.ts` (attaches server-side per
+  PayMongo's own recommendation, so the client never needs a
+  `client_key` either), and `payment-intent-status.ts` (status lookup,
+  used after a 3DS redirect returns). Shared auth/error-extraction
+  helpers live in `api/paymongo/_shared.ts`.
+- `tsconfig.api.json` — a third `tsc -b` project (alongside `app`/
+  `node`) so the serverless functions actually get type-checked, not
+  just the Vite app; wired into the root `tsconfig.json`'s references.
+- `pages/CheckoutPaymentReturn.tsx` (`/checkout/payment-return`) — where
+  a 3DS redirect lands back in the app. Polls `retrievePaymentIntent()`
+  a few times (PayMongo's own docs note the intent can briefly sit in
+  `processing` right after authentication), then either finishes the
+  checkout (save-if-signed-in, clear cart, navigate to confirmation) or
+  shows an error. If the payment succeeded but the order-save call
+  itself then fails, it deliberately does **not** offer a "try again" —
+  that would risk a second charge for an already-paid order — and shows
+  a dead-end "contact support" message instead. `Checkout.tsx`'s
+  immediate (non-3DS) success path has the identical failure handling.
+- `Checkout.tsx` — a card-number/name/expiry/CVC fieldset shown when
+  "card" is selected, plus `processCardPayment()`: tokenize → create
+  intent → attach → branch on the result (`succeeded` → finish checkout
+  normally; `awaiting_next_action` → `redirectToPaymentAuth()` to
+  PayMongo's 3DS page; anything else → inline error, same as any other
+  submit failure).
+- `.env.example` — `VITE_PAYMONGO_PUBLIC_KEY` (client-safe, same idea as
+  the existing Supabase anon key) and `PAYMONGO_SECRET_KEY` (**no**
+  `VITE_` prefix on purpose — that prefix is what gets a variable bundled
+  into client code, and this one must never end up there).
+- `vercel.json` — the SPA fallback rewrite (`/(.*)` → `/index.html`) was
+  swallowing every route including the brand-new `/api/*` functions;
+  fixed to `/((?!api/).*)` so serverless functions actually reach their
+  handlers once deployed.
+- New/updated test files: `lib/payments/paymongo.test.ts`,
+  `lib/payments/pendingCheckout.test.ts`, `lib/checkout.test.ts`
+  (`validateCard`/`pesosToCentavos` cases), `api/paymongo/create-intent
+  .test.ts`, `api/paymongo/attach-payment-method.test.ts`,
+  `api/paymongo/payment-intent-status.test.ts`,
+  `pages/CheckoutPaymentReturn.test.tsx`, and new card-flow cases added
+  to the existing `pages/Checkout.test.tsx`. All of them mock PayMongo
+  at the module/fetch boundary — no test makes a real network call to
+  PayMongo, per this phase's own completion criteria.
+
+### Known Issues carried forward
+- The 3DS return flow polls a fixed 5 times, 1.5s apart, then gives up
+  and shows an error even though the charge might still complete a
+  moment later server-side on PayMongo's end — there's no webhook yet to
+  catch that asynchronously. Worth revisiting if real-world testing
+  shows shoppers hitting this.
+- GCash is still the pre-this-phase "pay ahead on trust" flow, not
+  PayMongo's own GCash e-wallet Source API — that's a real, separately
+  scoped integration (asynchronous, needs a webhook to know when a
+  source becomes chargeable) rather than a small addition to this phase.
+- No refund flow anywhere in the admin UI yet — a successful PayMongo
+  charge today can only be refunded from PayMongo's own dashboard.
+
+### QA
+- `tsc -b` (now three project references: `app`, `node`, and the new
+  `api`), `vite build`, `npx oxlint src`, and `npm test` (537/537 tests,
+  83 files) all pass clean. PayMongo itself is mocked in every test that
+  touches it, per this phase's completion criteria.
+
 ## Phase 30 — Customers
 
 Admin-facing customer management, distinct from the account-holder's own

@@ -10,11 +10,9 @@ shipped.
 
 ## Status
 
-- **Last completed phase:** 30 — Customers
-- **Next phase to start:** 31 — Payments. Already scoped below, but its
-  own Scope section requires confirming a payment provider (e.g. Stripe)
-  with Jude before any code is written — see "Scope discipline" under
-  Future Development Rules.
+- **Last completed phase:** 31 — Payments
+- **Next phase to start:** 32 — Shipping. No pending decision noted in
+  its Scope section below.
 - **Rule:** complete ONE phase per session, then stop and wait for approval.
 - **Note:** a cross-device settings sync feature (`site_settings` table,
   `lib/api/settings.ts`, `lib/settingsSync.ts`) exists in the codebase
@@ -69,6 +67,7 @@ Full detail lives in `MASTER_HANDOFF.md` → "Completed Phases". Summary:
 | 28 | Orders (Backend-Integrated) |
 | 29 | Inventory |
 | 30 | Customers |
+| 31 | Payments |
 
 ---
 
@@ -759,7 +758,7 @@ in `MASTER_HANDOFF.md` Known Issues.
 
 ---
 
-### Phase 31 — Payments
+### Phase 31 — Payments *(COMPLETE)*
 
 **Objective:** Real payment processing at checkout, replacing the
 simulated "place order" submission.
@@ -779,6 +778,22 @@ simulated "place order" submission.
 - Build/lint/tests pass (payment provider mocked in tests).
 - Security note added: no card data touches the app's own servers directly
   if using a tokenizing provider.
+
+**Delivered:** Provider confirmed with Jude: **PayMongo**, test-mode
+credentials via env vars, no keys hardcoded. Only the "card" payment
+method is gateway-processed (cod/gcash unchanged, see
+`lib/checkout.ts`'s doc comment on `PAYMENT_METHODS`). Card details are
+tokenized directly against PayMongo from the browser with the public
+key — raw card numbers never touch this app's own server; the secret
+key lives only in three new `api/paymongo/` Vercel serverless functions
+(`create-intent`/`attach-payment-method`/`payment-intent-status`), the
+only places it's read. 3D Secure is handled via a full-page redirect to
+PayMongo and a new `pages/CheckoutPaymentReturn.tsx` return route, with
+the already-built order bridged across that redirect via
+`lib/payments/pendingCheckout.ts` (`sessionStorage`, keyed by Payment
+Intent id). `vercel.json`'s SPA rewrite was fixed to stop swallowing
+`/api/*`. Full detail in `CHANGELOG.md`'s Phase 31 entry and
+`MASTER_HANDOFF.md`'s Phase 31 narrative/table row.
 
 ---
 

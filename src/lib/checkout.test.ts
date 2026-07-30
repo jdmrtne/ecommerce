@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FREE_SHIPPING_THRESHOLD,
   SHIPPING_FEE,
   buildOrder,
+  pesosToCentavos,
+  validateCard,
   validateCheckout,
 } from "@/lib/checkout";
 import type { CartLine } from "@/context/CartContext";
 import type { CheckoutFormData } from "@/types/order";
+import type { CardDetails } from "@/types/payment";
 import type { Product } from "@/types/product";
 
 function product(overrides: Partial<Product> = {}): Product {
@@ -95,5 +98,74 @@ describe("buildOrder", () => {
     const b = buildOrder(VALID_SHIPPING, [], 0);
     expect(a.orderNumber).toMatch(/^CV-\d{6}$/);
     expect(b.orderNumber).toMatch(/^CV-\d{6}$/);
+  });
+});
+
+const VALID_CARD: CardDetails = {
+  number: "4343 4343 4343 4345",
+  name: "Jude Tambago",
+  expMonth: 12,
+  expYear: new Date().getFullYear() + 2,
+  cvc: "123",
+};
+
+describe("validateCard", () => {
+  it("returns no errors for a fully valid card", () => {
+    expect(validateCard(VALID_CARD)).toEqual({});
+  });
+
+  it("accepts a card number with spaces, stripping them before checking length", () => {
+    expect(validateCard({ ...VALID_CARD, number: "4343 4343 4343 4345" }).number).toBeUndefined();
+  });
+
+  it("flags a card number that's too short", () => {
+    expect(validateCard({ ...VALID_CARD, number: "4343" }).number).toBeDefined();
+  });
+
+  it("flags a card number with non-digit characters", () => {
+    expect(validateCard({ ...VALID_CARD, number: "4343-4343-4343-4345" }).number).toBeDefined();
+  });
+
+  it("flags a blank name", () => {
+    expect(validateCard({ ...VALID_CARD, name: "  " }).name).toBeDefined();
+  });
+
+  it("flags an out-of-range expiry month", () => {
+    expect(validateCard({ ...VALID_CARD, expMonth: 13 }).expMonth).toBeDefined();
+    expect(validateCard({ ...VALID_CARD, expMonth: 0 }).expMonth).toBeDefined();
+  });
+
+  it("flags an expiry year in the past", () => {
+    expect(validateCard({ ...VALID_CARD, expYear: new Date().getFullYear() - 1 }).expYear).toBeDefined();
+  });
+
+  it("flags a card whose expiry month has already passed this year", () => {
+    vi.setSystemTime(new Date("2026-06-15T00:00:00.000Z"));
+    try {
+      expect(validateCard({ ...VALID_CARD, expYear: 2026, expMonth: 3 }).expMonth).toBeDefined();
+      expect(validateCard({ ...VALID_CARD, expYear: 2026, expMonth: 6 }).expMonth).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flags a CVC that isn't 3-4 digits", () => {
+    expect(validateCard({ ...VALID_CARD, cvc: "12" }).cvc).toBeDefined();
+    expect(validateCard({ ...VALID_CARD, cvc: "12345" }).cvc).toBeDefined();
+    expect(validateCard({ ...VALID_CARD, cvc: "abc" }).cvc).toBeDefined();
+  });
+
+  it("accepts a 4-digit CVC", () => {
+    expect(validateCard({ ...VALID_CARD, cvc: "1234" }).cvc).toBeUndefined();
+  });
+});
+
+describe("pesosToCentavos", () => {
+  it("converts whole pesos to centavos", () => {
+    expect(pesosToCentavos(158)).toBe(15800);
+  });
+
+  it("rounds fractional centavos", () => {
+    expect(pesosToCentavos(19.999)).toBe(2000);
   });
 });

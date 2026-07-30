@@ -1,4 +1,4 @@
-export type PaymentMethod = "cod" | "gcash";
+export type PaymentMethod = "cod" | "gcash" | "card";
 
 export interface CheckoutFormData {
   fullName: string;

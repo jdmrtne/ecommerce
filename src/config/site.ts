@@ -53,6 +53,7 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
   contact: { title: "Contact", description: `Get in touch with ${branding.businessName}.` },
   cart: { title: "Your Cart", description: "Review the items in your cart." },
   checkout: { title: "Checkout", description: "Complete your order." },
+  checkoutPaymentReturn: { title: "Confirming Payment", description: "Confirming your card payment." },
   orderConfirmation: { title: "Order Confirmed", description: "Your order has been placed." },
   wishlist: { title: "Your Wishlist", description: "Products you've saved for later." },
   login: { title: "Log In", description: `Log in to your ${branding.businessName} account.` },

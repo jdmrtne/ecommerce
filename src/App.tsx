@@ -11,6 +11,7 @@ import { Shop } from "@/pages/Shop";
 import { ProductDetail } from "@/pages/ProductDetail";
 import { Cart } from "@/pages/Cart";
 import { Checkout } from "@/pages/Checkout";
+import { CheckoutPaymentReturn } from "@/pages/CheckoutPaymentReturn";
 import { OrderConfirmation } from "@/pages/OrderConfirmation";
 import { Wishlist } from "@/pages/Wishlist";
 import { Login } from "@/pages/Login";
@@ -67,6 +68,7 @@ function App() {
                 <Route path="shop/:id" element={<ProductDetail />} />
                 <Route path="cart" element={<Cart />} />
                 <Route path="checkout" element={<Checkout />} />
+                <Route path="checkout/payment-return" element={<CheckoutPaymentReturn />} />
                 <Route path="order-confirmation" element={<OrderConfirmation />} />
                 <Route path="wishlist" element={<Wishlist />} />
                 <Route path="login" element={<Login />} />

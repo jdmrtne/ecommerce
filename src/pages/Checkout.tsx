@@ -11,16 +11,26 @@ import {
   PAYMENT_METHODS,
   SHIPPING_FEE,
   buildOrder,
+  pesosToCentavos,
+  validateCard,
   validateCheckout,
 } from "@/lib/checkout";
-import type { CheckoutErrors } from "@/lib/checkout";
+import type { CardErrors, CheckoutErrors } from "@/lib/checkout";
 import { apiSaveOrderForUser } from "@/lib/api/orders";
 import { apiGetProducts } from "@/lib/api/products";
 import { checkStockForLines } from "@/lib/inventory";
 import type { StockIssue } from "@/lib/inventory";
+import {
+  attachPaymentMethod,
+  createPaymentIntent,
+  createPaymentMethod,
+  redirectToPaymentAuth,
+} from "@/lib/payments/paymongo";
+import { clearPendingCardCheckout, savePendingCardCheckout } from "@/lib/payments/pendingCheckout";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
-import type { CheckoutFormData } from "@/types/order";
+import type { CheckoutFormData, Order } from "@/types/order";
+import type { CardDetails } from "@/types/payment";
 import { PAGE_META } from "@/config/site";
 import { useSiteMeta } from "@/hooks/useSiteMeta";
 
@@ -33,6 +43,8 @@ const BLANK_FORM: Omit<CheckoutFormData, "fullName" | "email"> = {
   paymentMethod: "cod",
   notes: "",
 };
+
+const BLANK_CARD_FORM = { number: "", name: "", expMonth: "", expYear: "", cvc: "" };
 
 /**
  * Shipping details + payment method, then a real order placement.
@@ -69,6 +81,20 @@ const BLANK_FORM: Omit<CheckoutFormData, "fullName" | "email"> = {
  * post-submit navigate to /order-confirmation: clearCart() empties `lines`
  * a render before the navigate actually takes effect, and without the
  * guard that render would otherwise bounce the user to /cart instead.
+ *
+ * Phase 31 - Payments. "cod"/"gcash" still take the original path above
+ * unchanged (order built and saved immediately - see `lib/checkout.ts`'s
+ * doc comment on `PAYMENT_METHODS` for why neither needs a gateway call).
+ * "card" instead runs `processCardPayment()`: tokenize the card with
+ * PayMongo (public key, direct from the browser), create a Payment
+ * Intent and attach that Payment Method to it (both via this app's own
+ * `/api/paymongo/*` functions - see `lib/payments/paymongo.ts`), and
+ * only build/save the order once the intent actually reports
+ * `succeeded`. A card that needs 3D Secure sends the shopper's whole tab
+ * to PayMongo and back - the order built just before that redirect is
+ * stashed in `sessionStorage` first (`lib/payments/pendingCheckout.ts`),
+ * since in-memory state like this component's own `form` won't survive
+ * the round trip; `CheckoutPaymentReturn.tsx` is where that trip ends.
  */
 export function Checkout() {
   useSiteMeta(PAGE_META.checkout);
@@ -83,10 +109,13 @@ export function Checkout() {
     email: user?.email ?? "",
   }));
   const [errors, setErrors] = useState<CheckoutErrors>({});
+  const [cardForm, setCardForm] = useState(BLANK_CARD_FORM);
+  const [cardErrors, setCardErrors] = useState<CardErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [placedOrder, setPlacedOrder] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [stockIssues, setStockIssues] = useState<StockIssue[]>([]);
+  const [cardSaveFailedOrderNumber, setCardSaveFailedOrderNumber] = useState<string | null>(null);
 
   useEffect(() => {
     if (lines.length === 0 && !placedOrder) {
@@ -98,11 +127,73 @@ export function Checkout() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function updateCardField<K extends keyof typeof BLANK_CARD_FORM>(key: K, value: (typeof BLANK_CARD_FORM)[K]) {
+    setCardForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function cardDetails(): CardDetails {
+    return {
+      number: cardForm.number,
+      name: cardForm.name,
+      expMonth: Number(cardForm.expMonth),
+      expYear: Number(cardForm.expYear),
+      cvc: cardForm.cvc,
+    };
+  }
+
+  /**
+   * Runs the PayMongo card flow for an already-built `order`. Either
+   * finishes the checkout the same way the cod/gcash path does
+   * (save-if-signed-in, clear cart, navigate to confirmation), hands off
+   * to a 3D Secure redirect (leaves `isSubmitting` true - the page is
+   * about to navigate away for real), or throws so the caller's existing
+   * `catch` shows an inline error, same as any other submit failure.
+   */
+  async function processCardPayment(order: Order) {
+    const paymentMethodId = await createPaymentMethod(cardDetails());
+    const intent = await createPaymentIntent(pesosToCentavos(order.total), `Order ${order.orderNumber}`);
+    savePendingCardCheckout(intent.id, { order, userEmail: user?.email ?? null });
+
+    const returnUrl = `${window.location.origin}/checkout/payment-return?intent_id=${intent.id}`;
+    const attachResult = await attachPaymentMethod(intent.id, paymentMethodId, returnUrl);
+
+    if (attachResult.status === "awaiting_next_action" && attachResult.nextActionUrl) {
+      redirectToPaymentAuth(attachResult.nextActionUrl);
+      return;
+    }
+
+    if (attachResult.status !== "succeeded") {
+      clearPendingCardCheckout(intent.id);
+      throw new Error("Your card could not be charged. Please check your details or try a different card.");
+    }
+
+    clearPendingCardCheckout(intent.id);
+    if (user) {
+      try {
+        await apiSaveOrderForUser(user.email, order);
+      } catch {
+        // The charge already succeeded - showing a normal retryable error
+        // here would risk a second charge for the same order, so this
+        // gets its own dead-end state instead (see the render below).
+        setCardSaveFailedOrderNumber(order.orderNumber);
+        setIsSubmitting(false);
+        return;
+      }
+    }
+    setPlacedOrder(true);
+    clearCart();
+    navigate("/order-confirmation", { state: { order } });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const validationErrors = validateCheckout(form);
     setErrors(validationErrors);
-    if (Object.keys(validationErrors).length > 0) return;
+
+    const cardValidationErrors = form.paymentMethod === "card" ? validateCard(cardDetails()) : {};
+    setCardErrors(cardValidationErrors);
+
+    if (Object.keys(validationErrors).length > 0 || Object.keys(cardValidationErrors).length > 0) return;
 
     setSubmitError(null);
     setStockIssues([]);
@@ -117,6 +208,12 @@ export function Checkout() {
       }
 
       const order = buildOrder(form, lines, subtotal);
+
+      if (form.paymentMethod === "card") {
+        await processCardPayment(order);
+        return;
+      }
+
       if (user) {
         await apiSaveOrderForUser(user.email, order);
       }
@@ -127,6 +224,18 @@ export function Checkout() {
       setSubmitError(err instanceof Error ? err.message : "Something went wrong placing your order.");
       setIsSubmitting(false);
     }
+  }
+
+  if (cardSaveFailedOrderNumber) {
+    return (
+      <div className="mx-auto flex max-w-xl flex-col items-center px-4 py-20 text-center sm:px-6 lg:px-8">
+        <SectionHeading eyebrow="Payment" title="We hit a snag" align="center" />
+        <p role="alert" className="mt-6 text-error">
+          Your payment for order {cardSaveFailedOrderNumber} was successful, but we ran into a problem recording
+          your order. Please contact us with this order number and we&apos;ll sort it out right away.
+        </p>
+      </div>
+    );
   }
 
   if (lines.length === 0) return null; // redirect effect above handles navigation
@@ -237,6 +346,64 @@ export function Checkout() {
                 </span>
               </label>
             ))}
+            {form.paymentMethod === "card" && (
+              <div className="mt-2 flex flex-col gap-4 rounded-md border-2 border-beige p-4">
+                <Input
+                  label="Card number"
+                  inputMode="numeric"
+                  autoComplete="cc-number"
+                  placeholder="4343 4343 4343 4345"
+                  value={cardForm.number}
+                  onChange={(e) => updateCardField("number", e.target.value)}
+                  error={cardErrors.number}
+                  disabled={isSubmitting}
+                />
+                <Input
+                  label="Name on card"
+                  autoComplete="cc-name"
+                  value={cardForm.name}
+                  onChange={(e) => updateCardField("name", e.target.value)}
+                  error={cardErrors.name}
+                  disabled={isSubmitting}
+                />
+                <div className="grid grid-cols-3 gap-4">
+                  <Input
+                    label="Exp. month"
+                    inputMode="numeric"
+                    autoComplete="cc-exp-month"
+                    placeholder="MM"
+                    value={cardForm.expMonth}
+                    onChange={(e) => updateCardField("expMonth", e.target.value)}
+                    error={cardErrors.expMonth}
+                    disabled={isSubmitting}
+                  />
+                  <Input
+                    label="Exp. year"
+                    inputMode="numeric"
+                    autoComplete="cc-exp-year"
+                    placeholder="YYYY"
+                    value={cardForm.expYear}
+                    onChange={(e) => updateCardField("expYear", e.target.value)}
+                    error={cardErrors.expYear}
+                    disabled={isSubmitting}
+                  />
+                  <Input
+                    label="CVC"
+                    inputMode="numeric"
+                    autoComplete="cc-csc"
+                    placeholder="123"
+                    value={cardForm.cvc}
+                    onChange={(e) => updateCardField("cvc", e.target.value)}
+                    error={cardErrors.cvc}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <p className="text-xs text-ink-soft">
+                  Payments are processed securely by PayMongo. Your card details are sent directly to PayMongo and
+                  never touch our servers.
+                </p>
+              </div>
+            )}
           </fieldset>
         </div>
 
