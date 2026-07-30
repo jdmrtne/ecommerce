@@ -5,6 +5,8 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { retrievePaymentIntent } from "@/lib/payments/paymongo";
 import { clearPendingCardCheckout, loadPendingCardCheckout } from "@/lib/payments/pendingCheckout";
 import { apiSaveOrderForUser } from "@/lib/api/orders";
+import { notifyOrderPlaced } from "@/lib/notifications/notify";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { useCart } from "@/context/CartContext";
 import { PAGE_META } from "@/config/site";
 import { useSiteMeta } from "@/hooks/useSiteMeta";
@@ -33,6 +35,12 @@ type ViewState =
  * Polls `retrievePaymentIntent()` a few times rather than trusting the
  * redirect alone, since PayMongo's own docs note the intent can briefly
  * sit in `processing` right after authentication completes.
+ *
+ * Phase 33 - Notifications. `notifyOrderPlaced()` runs right after the
+ * order save succeeds here, the same call `Checkout.tsx`'s own
+ * immediate-success path makes - see that file's doc comment and
+ * `lib/notifications/notify.ts` for why it's awaited but can never turn
+ * this already-successful payment into an error state.
  */
 export function CheckoutPaymentReturn() {
   useSiteMeta(PAGE_META.checkoutPaymentReturn);
@@ -41,6 +49,7 @@ export function CheckoutPaymentReturn() {
   const intentId = searchParams.get("intent_id");
   const { clearCart } = useCart();
   const navigate = useNavigate();
+  const { branding } = useStoreSettings();
   const [view, setView] = useState<ViewState>({ kind: "checking" });
   const hasRun = useRef(false);
 
@@ -81,6 +90,7 @@ export function CheckoutPaymentReturn() {
         if (pending.userEmail) {
           await apiSaveOrderForUser(pending.userEmail, pending.order);
         }
+        await notifyOrderPlaced(pending.order, branding.businessName, !!pending.userEmail);
         clearPendingCardCheckout(intentId);
         clearCart();
         navigate("/order-confirmation", { state: { order: pending.order }, replace: true });
@@ -96,7 +106,7 @@ export function CheckoutPaymentReturn() {
         message: "We couldn't confirm your payment status. If you were charged, please contact us with your bank statement reference.",
       });
     });
-  }, [intentId, clearCart, navigate]);
+  }, [intentId, clearCart, navigate, branding.businessName]);
 
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center px-4 py-20 text-center sm:px-6 lg:px-8">

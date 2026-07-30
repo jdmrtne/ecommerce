@@ -14,6 +14,12 @@ vi.mock("@/lib/payments/paymongo", async (importOriginal) => {
   return { ...actual, retrievePaymentIntent: vi.fn() };
 });
 
+// See Checkout.test.tsx for why this is mocked at the module boundary
+// rather than left to hit a real /api/resend endpoint.
+vi.mock("@/lib/notifications/email", () => ({
+  sendOrderConfirmationEmail: vi.fn().mockResolvedValue(undefined),
+}));
+
 const ORDER: Order = {
   orderNumber: "CV-123456",
   placedAt: "2026-01-01T00:00:00.000Z",
@@ -70,6 +76,14 @@ describe("CheckoutPaymentReturn", () => {
     const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "jude@example.com").order("placed_at");
     expect(data).toHaveLength(1);
     expect(window.localStorage.getItem(storageKey("cart"))).toBe("[]");
+
+    const { data: notifications } = await fakeSupabase
+      .from("notifications")
+      .select("*")
+      .eq("user_email", "jude@example.com")
+      .order("created_at");
+    expect(notifications).toHaveLength(1);
+    expect((notifications as { order_number: string }[])[0].order_number).toBe("CV-123456");
   });
 
   it("does not write an order and shows an error when the payment did not succeed", async () => {

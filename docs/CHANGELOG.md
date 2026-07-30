@@ -6,6 +6,95 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Phase 33 — Notifications
+
+Order-confirmation notifications, both channels the roadmap entry
+offered as options — confirmed with the user before implementation
+(same pending-decision pattern Phase 31's payment provider used): a
+transactional email via **Resend**, and an in-app notification center.
+
+The email side runs for *every* checkout, guest or signed-in — an email
+just needs an address. The in-app side only ever runs for a signed-in
+shopper, since it needs an owner row to write a notification for; a
+guest checkout has no such row (same reasoning `orders`' RLS already
+uses). Both halves are individually best-effort: `notifyOrderPlaced()`
+(`lib/notifications/notify.ts`), the one call site both order-completion
+paths share, never throws — a notification failure can't undo or show
+an error for an order that already genuinely succeeded, only a
+`console.warn` a developer can find later.
+
+### Added
+- `types/notification.ts` — `AppNotification`/`NewNotification` types.
+  `type` is a plain string union (`"order_placed"` today), not a
+  database enum, so a later phase can add another event without a
+  migration.
+- `supabase/schema.sql` — new `notifications` table (`user_email`,
+  `type`, `title`, `body`, `order_number`, `read`, `created_at`), keyed
+  by `user_email` with owner-only RLS (`auth.jwt() ->> 'email' =
+  user_email`) — same convention `orders` already established, not a
+  `profiles.id` foreign key.
+- `lib/api/types.ts` — `NotificationRow` + `mapNotificationRow()`/
+  `toNewNotificationRow()`.
+- `lib/api/notifications.ts` — `apiGetNotificationsForUser()`,
+  `apiCreateNotification()`, `apiMarkNotificationRead()`,
+  `apiMarkAllNotificationsRead()`. Same injectable-`client`,
+  network-free-in-tests shape as `lib/api/orders.ts`.
+- `hooks/useNotifications.ts` — the reactive `{ notifications,
+  unreadCount, status, reload, markRead, markAllRead }` wrapper.
+  `markRead`/`markAllRead` optimistically flip the local `read` flag
+  before the network call resolves, then fall back to a full reload if
+  the write actually fails.
+- `components/layout/NotificationBell.tsx` — the in-app notification
+  center: a bell icon in `Navbar.tsx` (signed-in shoppers only, both the
+  standard/centered and minimal icon clusters) with an unread-count
+  badge and an anchored dropdown listing notifications newest-first,
+  each markable read individually or all at once.
+- `lib/notifications/email.ts` — `sendOrderConfirmationEmail()`, the
+  client-side call to this app's own `/api/resend/send-order-confirmation`
+  endpoint. Never talks to Resend directly from the browser — an email
+  send has no client-safe key half at all (unlike PayMongo's public/
+  secret split), so the whole thing stays server-side.
+- `lib/notifications/notify.ts` — `notifyOrderPlaced()`, the shared
+  call site described above.
+- `api/resend/_shared.ts` / `api/resend/send-order-confirmation.ts` —
+  the Resend-backed serverless function (Vercel, same shape as
+  `api/paymongo/`): validates the request body, builds a plain-HTML
+  order-summary email, and posts it to Resend's REST API via `fetch`
+  (no `resend` npm package needed for one call).
+- `RESEND_API_KEY`/`RESEND_FROM_EMAIL` — new server-only env vars
+  (`.env.example`), read only by `api/resend/`, never bundled into
+  client code.
+- New test files: `lib/api/notifications.test.ts`,
+  `hooks/useNotifications.test.ts`,
+  `components/layout/NotificationBell.test.tsx`,
+  `lib/notifications/email.test.ts`, `lib/notifications/notify.test.ts`,
+  `api/resend/send-order-confirmation.test.ts`.
+
+### Changed
+- `Checkout.tsx` — calls `notifyOrderPlaced()` right after the order is
+  placed/saved, on both the cod/gcash path and the immediate (non-3DS)
+  card-success path.
+- `CheckoutPaymentReturn.tsx` — calls `notifyOrderPlaced()` at the
+  equivalent point on the 3DS return trip, after the order save
+  succeeds.
+- `src/test/fakeSupabaseAuth.ts` — new in-memory `notifications` table
+  fake (select/insert/update), reset by `__reset()`, so every test that
+  renders through the shared `AuthProvider`-backed client (checkout
+  flows, `NotificationBell`) gets the same no-network behavior as every
+  other table.
+- `src/test/mockSupabaseClient.ts` — the chainable mock gained
+  `.update(...)`, needed for `apiMarkNotificationRead()`/
+  `apiMarkAllNotificationsRead()`.
+- `Checkout.test.tsx`/`CheckoutPaymentReturn.test.tsx` — mock
+  `lib/notifications/email.ts` at the module boundary (same convention
+  as the existing PayMongo mock) so no test makes a real network call;
+  new assertions that a signed-in checkout writes exactly one
+  notification and a guest checkout writes none.
+
+### QA
+- `tsc -b`, `vite build`, `npx oxlint src`, and `npm test` (614/614
+  tests, 93 files) all pass clean.
+
 ## Phase 32 — Shipping
 
 Admin-configurable shipping methods/rates, replacing the flat hardcoded

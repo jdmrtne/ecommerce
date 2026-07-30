@@ -22,6 +22,8 @@ import { clearPendingCardCheckout, savePendingCardCheckout } from "@/lib/payment
 import { computeShippingFee, filterMethodsForProvince } from "@/lib/shippingSettingsStore";
 import { useShippingSettings } from "@/hooks/useShippingSettings";
 import type { ShippingMethod } from "@/types/shipping";
+import { notifyOrderPlaced } from "@/lib/notifications/notify";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import type { CheckoutFormData, Order } from "@/types/order";
@@ -105,6 +107,14 @@ const BLANK_CARD_FORM = { number: "", name: "", expMonth: "", expYear: "", cvc: 
  * are snapshotted onto the built `Order` the same way a product's name is
  * snapshotted onto each `OrderLine` - so a later admin rename/removal
  * doesn't change what an already-placed order's receipt shows.
+ *
+ * Phase 33 - Notifications. `notifyOrderPlaced()` (`lib/notifications/
+ * notify.ts`) runs right after the order is placed/saved, on both the
+ * cod/gcash/immediate-card path here and the equivalent point in
+ * `CheckoutPaymentReturn.tsx`'s 3DS return trip - the one call site both
+ * paths share. It's awaited (not fire-and-forget) but never throws, so
+ * it can't turn a genuinely successful order placement into an error
+ * shown to the shopper - see that file's doc comment.
  */
 export function Checkout() {
   useSiteMeta(PAGE_META.checkout);
@@ -113,6 +123,7 @@ export function Checkout() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { methods: shippingMethods } = useShippingSettings();
+  const { branding } = useStoreSettings();
 
   const [form, setForm] = useState<CheckoutFormData>(() => {
     const initialMethod = filterMethodsForProvince(shippingMethods, "")[0];
@@ -220,6 +231,7 @@ export function Checkout() {
         return;
       }
     }
+    await notifyOrderPlaced(order, branding.businessName, !!user);
     setPlacedOrder(true);
     clearCart();
     navigate("/order-confirmation", { state: { order } });
@@ -268,6 +280,7 @@ export function Checkout() {
       if (user) {
         await apiSaveOrderForUser(user.email, order);
       }
+      await notifyOrderPlaced(order, branding.businessName, !!user);
       setPlacedOrder(true);
       clearCart();
       navigate("/order-confirmation", { state: { order } });

@@ -436,9 +436,47 @@ migration since `shipping` is already a `jsonb` column.
 `OrderConfirmation.tsx` shows the snapshotted method name next to the
 shipping fee line.
 
+**Phase 33 — Notifications.** Order-confirmation notifications, both
+channels the roadmap entry offered as options — confirmed with Jude
+before implementation, same pending-decision pattern as Phase 31's
+payment provider: a transactional email via **Resend**, and an in-app
+notification center. New `notifications` table (`supabase/schema.sql`),
+keyed by `user_email` with owner-only RLS — same convention `orders`
+already established, not a `profiles.id` foreign key — since a guest
+checkout has no owner row to write one for. `lib/api/notifications.ts`
+is the usual injectable-`client` API layer (mirrors `lib/api/orders.ts`
+1:1); `hooks/useNotifications.ts` is the reactive wrapper, with
+optimistic-then-sync `markRead`/`markAllRead`. The in-app half is a new
+bell icon in `Navbar.tsx` (`components/layout/NotificationBell.tsx`,
+signed-in shoppers only, both the standard/centered and minimal icon
+clusters) — an unread-count badge and an anchored dropdown, not a
+dedicated page or `Modal.tsx`'s full-screen overlay. The email half
+(`lib/notifications/email.ts`) never talks to Resend directly from the
+browser — unlike PayMongo's public/secret key split, an email send has
+no client-safe half at all, so it goes through this app's own new
+`api/resend/send-order-confirmation.ts` serverless function (Vercel,
+same shape as `api/paymongo/`; a plain `fetch` against Resend's REST
+API, no `resend` npm package needed for one call), the only place
+`RESEND_API_KEY` is read. Both halves run through one shared call site,
+`lib/notifications/notify.ts`'s `notifyOrderPlaced()` — called from
+both places an order can actually finish, `Checkout.tsx`'s immediate
+cod/gcash/non-3DS-card success and `CheckoutPaymentReturn.tsx`'s 3DS
+return trip — and it deliberately never throws: by the time it runs the
+order (and, for a card, the charge) has already succeeded, so a
+notification failure only logs a `console.warn`, never blocks
+navigation or shows the shopper an error about a purchase that actually
+went through. The email side runs for every checkout, guest or signed-
+in (an email just needs an address); the in-app side is gated on
+`signedIn` outright, since RLS would reject a guest's write anyway.
+`src/test/fakeSupabaseAuth.ts` gained an in-memory `notifications`
+table fake (no seed data, same reasoning as `orders`), and
+`src/test/mockSupabaseClient.ts`'s chain gained `.update(...)`, needed
+for marking a notification read. Every Resend call in the test suite is
+mocked at the module boundary — no test makes a real network call.
+
 ## Current Phase
 
-**Phase 32 complete.** See `ROADMAP.md`'s Status section for the next
+**Phase 33 complete.** See `ROADMAP.md`'s Status section for the next
 unfinished phase.
 
 ## Completed Phases
@@ -478,6 +516,7 @@ unfinished phase.
 | 30 | Customers | Read-only admin customer management: new `/admin/customers` list (`Customers.tsx`, search by name/email, filter by role) and `/admin/customers/:email` detail page (`CustomerDetail.tsx`, profile fields + full order history). New `hooks/useCustomers.ts` wraps `apiGetCustomers()` (`lib/api/auth.ts` plumbing added in Phase 25, unused by any UI until now); the detail page's order history reuses `hooks/useOrders.ts` (Phase 28) as-is, pointed at another account's email. Two new admin-read RLS policies in `supabase/schema.sql` (`profiles`, `orders`) close a real gap — without them, an admin's calls under real Supabase would have silently returned nothing, since both tables' prior policies only ever let a signed-in user read their own row; requires Jude to run the updated schema once. `ADMIN_NAV` gained a "Customers" entry. New tests `hooks/useCustomers.test.ts`/`Customers.test.tsx`/`CustomerDetail.test.tsx`. No create/edit/delete — out of this phase's scope. |
 | 31 | Payments | Real payment processing at checkout via **PayMongo** (provider confirmed with Jude first). Only "card" is gateway-processed — "cod"/"gcash" are unchanged. `lib/payments/paymongo.ts` tokenizes card details directly against PayMongo from the browser with the client-safe public key; three new serverless functions under `api/paymongo/` (`create-intent`/`attach-payment-method`/`payment-intent-status`) are the only places the server-only secret key is read, creating and confirming the actual charge. A card needing 3D Secure sends the shopper's tab to PayMongo and back; the already-built order survives that round trip via `lib/payments/pendingCheckout.ts` (`sessionStorage`, keyed by Payment Intent id), and a new `CheckoutPaymentReturn.tsx` (`/checkout/payment-return`) finishes the checkout once PayMongo confirms success — or shows a deliberately non-retryable error if the charge succeeded but saving the order then failed, to avoid a double charge. `vercel.json`'s SPA rewrite was fixed to stop swallowing `/api/*`; a new `tsconfig.api.json` gives the serverless functions real type-checking. New tests across `lib/payments/`, `api/paymongo/`, `Checkout.test.tsx`, and `CheckoutPaymentReturn.test.tsx` — PayMongo itself mocked in all of them. |
 | 32 | Shipping | Admin-configurable shipping methods/rates, replacing `lib/checkout.ts`'s hardcoded `SHIPPING_FEE`/`FREE_SHIPPING_THRESHOLD`. New `types/shipping.ts` `ShippingMethod` (flat rate, optional per-method free-shipping threshold, optional province list as a shipping zone); `config/shipping.ts`'s single default reproduces the old ₱80/₱1,500/nationwide behavior exactly. `lib/shippingSettingsStore.ts` is the usual override-over-defaults `localStorage` store (Navigation Editor's flat-array shape) plus the shared `filterMethodsForProvince()`/`computeShippingFee()` logic both `Checkout.tsx` and the new `pages/admin/ShippingEditor.tsx` (`/admin/shipping`, new nav entry) use. `Checkout.tsx` shows the province-filtered methods as a radio choice, auto-reselecting when the filtered list changes out from under the current pick. `buildOrder()` now takes an explicit `shippingFee` param instead of computing it; the selected method's id/name are snapshotted onto `CheckoutFormData` (no `orders` schema change needed - `shipping` is already `jsonb`), and `OrderConfirmation.tsx` shows the snapshotted method name. New tests: `shippingSettingsStore.test.ts`, `useShippingSettings.test.ts`, `shippingValidation.test.ts`, `ShippingEditor.test.tsx`, plus new shipping-method cases in `checkout.test.ts`/`Checkout.test.tsx`. |
+| 33 | Notifications | Order-confirmation notifications on both channels the roadmap offered — confirmed with Jude first: a transactional email via **Resend**, and an in-app notification center. New `notifications` table (`user_email`-keyed, owner-only RLS, same convention as `orders`); `lib/api/notifications.ts` mirrors `lib/api/orders.ts`'s injectable-`client` shape. `components/layout/NotificationBell.tsx` is a new signed-in-only bell icon in `Navbar.tsx` with an unread badge and anchored dropdown (`hooks/useNotifications.ts` backs it, optimistic-then-sync `markRead`/`markAllRead`). `lib/notifications/email.ts` calls this app's own new `api/resend/send-order-confirmation.ts` serverless function (Vercel, same shape as `api/paymongo/`) — the only place `RESEND_API_KEY` is read, never the browser. One shared call site, `lib/notifications/notify.ts`'s `notifyOrderPlaced()`, runs from both places an order can finish (`Checkout.tsx`'s immediate success path, `CheckoutPaymentReturn.tsx`'s 3DS return) and never throws, so a notification failure can't turn an already-successful order into an error. Email runs for every checkout (guest or signed-in); the in-app half is signed-in-only. New tests: `lib/api/notifications.test.ts`, `useNotifications.test.ts`, `NotificationBell.test.tsx`, `lib/notifications/email.test.ts`, `notify.test.ts`, `api/resend/send-order-confirmation.test.ts` — Resend mocked in all of them. |
 
 ## Remaining Phases
 
@@ -1523,8 +1562,21 @@ sections of each of the four policy pages
 
 ## Testing Status
 
-Vitest + Testing Library. **581 tests / 87 files**, all passing (up from
-266/46 at the start of Phase 21). New in Phase 32: `lib/
+Vitest + Testing Library. **614 tests / 93 files**, all passing (up from
+266/46 at the start of Phase 21). New in Phase 33: `lib/
+api/notifications.test.ts` (the new injectable-`client` API layer, same
+shape as `lib/api/orders.test.ts`), `hooks/useNotifications.test.ts`,
+`components/layout/NotificationBell.test.tsx` (empty state, unread
+badge, listing, mark-read), `lib/notifications/email.test.ts`, `lib/
+notifications/notify.test.ts` (asserts the shared call site never
+throws even when either half fails), and `api/resend/
+send-order-confirmation.test.ts` (validation, success, and error-relay
+cases against a mocked `fetch`) — no test makes a real Resend network
+call. `Checkout.test.tsx`/`CheckoutPaymentReturn.test.tsx` gained a
+module-boundary mock for `lib/notifications/email.ts` (same convention
+as the existing PayMongo mock) plus assertions that a signed-in
+checkout writes exactly one in-app notification and a guest checkout
+writes none. New in Phase 32: `lib/
 shippingSettingsStore.test.ts` (override/resolve/reset, province
 zone-filtering, fee computation, id generation), `hooks/
 useShippingSettings.test.ts`, `lib/shippingValidation.test.ts`, `pages/

@@ -8,6 +8,7 @@ import { useCart } from "@/context/CartContext";
 import { useWishlist } from "@/context/WishlistContext";
 import { useAuth } from "@/context/AuthContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { cn } from "@/lib/cn";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
@@ -116,6 +117,7 @@ export function Navbar() {
       >
         <User size={20} />
       </IconButton>
+      <NotificationBell />
       <IconButton label="Wishlist" onClick={() => navigate("/wishlist")} badge={wishlistCount}>
         <Heart size={20} />
       </IconButton>
@@ -143,6 +145,7 @@ export function Navbar() {
       <IconButton label="Cart" onClick={() => setIsCartOpen(true)} badge={totalCount}>
         <ShoppingBag size={20} />
       </IconButton>
+      <NotificationBell />
       {menuToggle}
     </div>
   );

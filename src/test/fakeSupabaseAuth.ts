@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OrderRow, ProductRow, ProfileRow } from "@/lib/api/types";
+import type { NotificationRow, OrderRow, ProductRow, ProfileRow } from "@/lib/api/types";
 import { toProductRow } from "@/lib/api/types";
 import { ALL_PRODUCTS } from "@/data/products";
 
@@ -48,6 +48,13 @@ import { ALL_PRODUCTS } from "@/data/products";
  * `supabase/schema.sql`) - so `AssetPicker`/`MediaManager` tests get the
  * same no-network, in-memory behavior as everything else that renders
  * through this shared client.
+ *
+ * Phase 33 - Notifications adds a `notifications` table, no seed data
+ * (same as `orders` - a notification is only ever created by a real
+ * checkout, not a static default). `Checkout`/`CheckoutPaymentReturn`
+ * now call `lib/api/notifications.ts`'s `apiCreateNotification()`
+ * against this same default singleton whenever a signed-in shopper
+ * places an order, and `NotificationBell` reads/marks-read through it.
  */
 
 interface FakeAccount {
@@ -85,7 +92,9 @@ export function createFakeAuthClient(): FakeAuthClient {
   let products = seedProducts();
   let settings = new Map<string, unknown>(); // key: site_settings row key (theme/store/homepage)
   let orders = new Map<string, OrderRow>(); // key: order_number
+  let notifications = new Map<string, NotificationRow>(); // key: id
   let media = new Map<string, FakeMediaObject>(); // key: storage path
+  let notificationIdSeq = 1;
   let session: FakeSession = null;
   let idSeq = 1;
   let listeners = new Set<AuthListener>();
@@ -206,6 +215,41 @@ export function createFakeAuthClient(): FakeAuthClient {
     };
   }
 
+  function notificationsTable() {
+    return {
+      select: () => ({
+        eq: (field: string, value: string) => ({
+          order: (orderField: string, opts?: { ascending?: boolean }) => {
+            const rows = [...notifications.values()]
+              .filter((n) => (n as unknown as Record<string, unknown>)[field] === value)
+              .sort((a, b) => {
+                const av = String((a as unknown as Record<string, unknown>)[orderField]);
+                const bv = String((b as unknown as Record<string, unknown>)[orderField]);
+                return opts?.ascending === false ? bv.localeCompare(av) : av.localeCompare(bv);
+              });
+            return Promise.resolve({ data: rows, error: null });
+          },
+        }),
+      }),
+      insert: (row: Omit<NotificationRow, "id" | "read" | "created_at">) => {
+        const id = `fake-notification-${notificationIdSeq++}`;
+        const full: NotificationRow = { ...row, id, read: false, created_at: new Date().toISOString() };
+        notifications.set(id, full);
+        return Promise.resolve({ data: full, error: null });
+      },
+      update: (patch: Partial<NotificationRow>) => ({
+        eq: (field: string, value: string) => {
+          for (const row of notifications.values()) {
+            if ((row as unknown as Record<string, unknown>)[field] === value) {
+              notifications.set(row.id, { ...row, ...patch });
+            }
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+      }),
+    };
+  }
+
   function mediaBucket() {
     return {
       list: (_prefix: string, opts?: { sortBy?: { column: string; order: "asc" | "desc" } }) => {
@@ -254,6 +298,7 @@ export function createFakeAuthClient(): FakeAuthClient {
       if (table === "products") return productsTable();
       if (table === "site_settings") return settingsTable();
       if (table === "orders") return ordersTable();
+      if (table === "notifications") return notificationsTable();
       throw new Error(`FakeAuthClient: unsupported table "${table}"`);
     },
     auth: {
@@ -305,6 +350,8 @@ export function createFakeAuthClient(): FakeAuthClient {
       products = seedProducts();
       settings = new Map();
       orders = new Map();
+      notifications = new Map();
+      notificationIdSeq = 1;
       media = new Map();
       session = null;
       listeners = new Set();

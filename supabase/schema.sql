@@ -230,6 +230,45 @@ create policy "Only admins can delete media"
   );
 
 -- ---------------------------------------------------------------------
+-- Phase 33 - Notifications. In-app notification center: one row per
+-- notification for a signed-in shopper (order confirmation at minimum,
+-- per this phase's scope - `type` is left as free text rather than a
+-- constrained enum so a later phase can add another event without a
+-- migration). Keyed by `user_email` rather than a `profiles.id` foreign
+-- key - same convention `orders` already uses (see its own comment
+-- above) - so the owner-only RLS check below matches the exact pattern
+-- every other owner-scoped table in this file already uses
+-- (`auth.jwt() ->> 'email' = user_email`). Guest checkouts never write
+-- here (there's no signed-in owner to write it for) - only the
+-- transactional email (sent from `api/resend/`, no database write at
+-- all) reaches a guest.
+-- ---------------------------------------------------------------------
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_email text not null,
+  type text not null,
+  title text not null,
+  body text not null,
+  order_number text,
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+alter table notifications enable row level security;
+
+create policy "A signed-in user can read their own notifications"
+  on notifications for select
+  using (auth.jwt() ->> 'email' = user_email);
+
+create policy "A signed-in user can insert their own notifications"
+  on notifications for insert
+  with check (auth.jwt() ->> 'email' = user_email);
+
+create policy "A signed-in user can update their own notifications"
+  on notifications for update
+  using (auth.jwt() ->> 'email' = user_email);
+
+-- ---------------------------------------------------------------------
 -- Phase 29 - Inventory. Stock is decremented atomically inside the same
 -- transaction as the order insert (a trigger, not a second client-side
 -- update) for two reasons:

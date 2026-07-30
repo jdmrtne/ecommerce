@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * A minimal fake of Supabase's chainable query builder for `lib/api/*`
  * tests. Every table-query call in this app's API layer follows one of a
  * few shapes - `.select().order()`, `.select().eq().maybeSingle()`,
- * `.upsert().select().single()`, `.insert(...)`, `.delete().eq(...)` -
+ * `.upsert().select().single()`, `.insert(...)`, `.delete().eq(...)`,
+ * `.update(...).eq(...)` -
  * and every one of those chains ultimately resolves to `{ data, error }`.
  * Supabase's real builder is itself "thenable" (awaiting it without
  * calling `.single()`/`.maybeSingle()` still resolves to `{data, error}`),
@@ -20,6 +21,7 @@ export function chainableResult(result: { data: unknown; error: { message: strin
     order: vi.fn(() => chain),
     upsert: vi.fn(() => chain),
     insert: vi.fn(() => chain),
+    update: vi.fn(() => chain),
     delete: vi.fn(() => chain),
     maybeSingle: vi.fn(() => Promise.resolve(result)),
     single: vi.fn(() => Promise.resolve(result)),

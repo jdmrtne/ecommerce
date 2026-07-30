@@ -2,6 +2,7 @@ import type { Product, ProductVariant, Category, CraftCategory } from "@/types/p
 import type { Order, OrderLine, CheckoutFormData } from "@/types/order";
 import type { AuthUser } from "@/context/AuthContext";
 import type { UserRole } from "@/lib/userStore";
+import type { AppNotification, NewNotification } from "@/types/notification";
 
 /**
  * Phase 25 - Backend Integration. Table row shapes (`supabase/schema.sql`)
@@ -152,4 +153,38 @@ export interface ProfileRow {
 
 export function mapProfileRow(row: ProfileRow): AuthUser {
   return { name: row.name, email: row.email, role: row.role };
+}
+
+export interface NotificationRow {
+  id: string;
+  user_email: string;
+  type: string;
+  title: string;
+  body: string;
+  order_number: string | null;
+  read: boolean;
+  created_at: string;
+}
+
+export function mapNotificationRow(row: NotificationRow): AppNotification {
+  return {
+    id: row.id,
+    type: row.type as AppNotification["type"],
+    title: row.title,
+    body: row.body,
+    orderNumber: row.order_number ?? undefined,
+    read: row.read,
+    createdAt: row.created_at,
+  };
+}
+
+/** Insert shape for a new notification - `id`/`read`/`created_at` are assigned by the database. */
+export function toNewNotificationRow(email: string, notification: NewNotification): Omit<NotificationRow, "id" | "read" | "created_at"> {
+  return {
+    user_email: email.toLowerCase(),
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    order_number: notification.orderNumber ?? null,
+  };
 }

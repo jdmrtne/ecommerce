@@ -23,6 +23,17 @@ vi.mock("@/lib/payments/paymongo", () => ({
   redirectToPaymentAuth: vi.fn(),
 }));
 
+// Order-confirmation emails go through Resend in production (see
+// lib/notifications/email.ts) - mocked here at the module boundary so no
+// test makes a real network call, per Phase 33's own completion
+// criteria ("notification provider mocked in tests"). The in-app
+// notification half isn't mocked - it's a real (fake-backed) Supabase
+// write, same as the order itself, and `notifications.test.ts` covers
+// its own failure handling in isolation.
+vi.mock("@/lib/notifications/email", () => ({
+  sendOrderConfirmationEmail: vi.fn().mockResolvedValue(undefined),
+}));
+
 const [PRODUCT_A] = ALL_PRODUCTS;
 
 const PROFILE = { id: "fake-user-1", email: "jude@example.com", name: "Jude Tambago", role: "customer" as const };
@@ -88,6 +99,13 @@ describe("Checkout", () => {
 
     const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "jude@example.com").order("placed_at");
     expect(data).toHaveLength(1);
+
+    const { data: notifications } = await fakeSupabase
+      .from("notifications")
+      .select("*")
+      .eq("user_email", "jude@example.com")
+      .order("created_at");
+    expect(notifications).toHaveLength(1);
   });
 
   it("shows an inline error and does not navigate away when the order write fails", async () => {
@@ -125,6 +143,13 @@ describe("Checkout", () => {
 
     const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "guest@example.com").order("placed_at");
     expect(data).toHaveLength(0);
+
+    const { data: notifications } = await fakeSupabase
+      .from("notifications")
+      .select("*")
+      .eq("user_email", "guest@example.com")
+      .order("created_at");
+    expect(notifications).toHaveLength(0);
   });
 
   it("blocks submission and shows an itemized error when a cart line now exceeds live stock", async () => {

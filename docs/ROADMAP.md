@@ -10,10 +10,8 @@ shipped.
 
 ## Status
 
-- **Last completed phase:** 32 — Shipping
-- **Next phase to start:** 33 — Notifications. Its Scope section notes a
-  pending decision (transactional email provider vs. in-app notification
-  center) that must be confirmed with the user before implementation.
+- **Last completed phase:** 33 — Notifications
+- **Next phase to start:** 34 — Analytics.
 - **Rule:** complete ONE phase per session, then stop and wait for approval.
 - **Note:** a cross-device settings sync feature (`site_settings` table,
   `lib/api/settings.ts`, `lib/settingsSync.ts`) exists in the codebase
@@ -827,7 +825,7 @@ Phase 32 entry and `MASTER_HANDOFF.md`'s Phase 32 narrative/table row.
 
 ---
 
-### Phase 33 — Notifications
+### Phase 33 — Notifications *(COMPLETE)*
 
 **Objective:** Transactional notifications for key events (order placed,
 account created, etc.).
@@ -842,6 +840,19 @@ account created, etc.).
 
 **Completion Criteria:**
 - Build/lint/tests pass (notification provider mocked in tests).
+
+**Delivered:** Both notification channels, confirmed with the user
+before implementation: a transactional order-confirmation email (via
+Resend, chosen when asked) sent to every shopper (guest or signed-in),
+and an in-app notification center (bell icon in `Navbar.tsx`, signed-in
+shoppers only) backed by a new `notifications` table. One shared call
+site, `lib/notifications/notify.ts`'s `notifyOrderPlaced()`, runs from
+both places an order can finish (`Checkout.tsx`'s immediate cod/gcash/
+non-3DS-card success, and `CheckoutPaymentReturn.tsx`'s 3DS return
+trip) and never throws, so a notification failure can't turn an
+already-successful order into an error shown to the shopper. Full
+detail in `CHANGELOG.md`'s Phase 33 entry and `MASTER_HANDOFF.md`'s
+Phase 33 narrative/table row.
 
 ---
 
