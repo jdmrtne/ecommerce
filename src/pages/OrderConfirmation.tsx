@@ -67,7 +67,7 @@ export function OrderConfirmation() {
             <span className="font-medium text-ink">{formatPHP(order.subtotal)}</span>
           </div>
           <div className="flex items-center justify-between text-ink-soft">
-            <span>Shipping</span>
+            <span>Shipping{order.shipping.shippingMethodName ? ` (${order.shipping.shippingMethodName})` : ""}</span>
             <span className="font-medium text-ink">
               {order.shippingFee === 0 ? "Free" : formatPHP(order.shippingFee)}
             </span>

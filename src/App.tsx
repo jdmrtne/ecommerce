@@ -31,6 +31,7 @@ import { FooterEditor } from "@/pages/admin/FooterEditor";
 import { PolicyEditor } from "@/pages/admin/PolicyEditor";
 import { MediaManager } from "@/pages/admin/MediaManager";
 import { Customers } from "@/pages/admin/Customers";
+import { ShippingEditor } from "@/pages/admin/ShippingEditor";
 import { CustomerDetail } from "@/pages/admin/CustomerDetail";
 import { NotFound } from "@/pages/NotFound";
 
@@ -106,6 +107,7 @@ function App() {
                 <Route path="media" element={<MediaManager />} />
                 <Route path="customers" element={<Customers />} />
                 <Route path="customers/:email" element={<CustomerDetail />} />
+                <Route path="shipping" element={<ShippingEditor />} />
               </Route>
             </Routes>
           </BrowserRouter>

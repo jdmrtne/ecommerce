@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
@@ -6,15 +6,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { formatPHP } from "@/lib/currency";
 import { cn } from "@/lib/cn";
-import {
-  FREE_SHIPPING_THRESHOLD,
-  PAYMENT_METHODS,
-  SHIPPING_FEE,
-  buildOrder,
-  pesosToCentavos,
-  validateCard,
-  validateCheckout,
-} from "@/lib/checkout";
+import { PAYMENT_METHODS, buildOrder, pesosToCentavos, validateCard, validateCheckout } from "@/lib/checkout";
 import type { CardErrors, CheckoutErrors } from "@/lib/checkout";
 import { apiSaveOrderForUser } from "@/lib/api/orders";
 import { apiGetProducts } from "@/lib/api/products";
@@ -27,6 +19,9 @@ import {
   redirectToPaymentAuth,
 } from "@/lib/payments/paymongo";
 import { clearPendingCardCheckout, savePendingCardCheckout } from "@/lib/payments/pendingCheckout";
+import { computeShippingFee, filterMethodsForProvince } from "@/lib/shippingSettingsStore";
+import { useShippingSettings } from "@/hooks/useShippingSettings";
+import type { ShippingMethod } from "@/types/shipping";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import type { CheckoutFormData, Order } from "@/types/order";
@@ -34,7 +29,7 @@ import type { CardDetails } from "@/types/payment";
 import { PAGE_META } from "@/config/site";
 import { useSiteMeta } from "@/hooks/useSiteMeta";
 
-const BLANK_FORM: Omit<CheckoutFormData, "fullName" | "email"> = {
+const BLANK_FORM: Omit<CheckoutFormData, "fullName" | "email" | "shippingMethodId" | "shippingMethodName"> = {
   phone: "",
   address: "",
   city: "",
@@ -95,6 +90,21 @@ const BLANK_CARD_FORM = { number: "", name: "", expMonth: "", expYear: "", cvc: 
  * stashed in `sessionStorage` first (`lib/payments/pendingCheckout.ts`),
  * since in-memory state like this component's own `form` won't survive
  * the round trip; `CheckoutPaymentReturn.tsx` is where that trip ends.
+ *
+ * Phase 32 - Shipping. The flat `SHIPPING_FEE`/`FREE_SHIPPING_THRESHOLD`
+ * constants are gone - shipping cost now comes from an admin-configurable
+ * list of `ShippingMethod`s (`lib/shippingSettingsStore.ts`), filtered to
+ * whichever are available for the shopper's entered province
+ * (`filterMethodsForProvince`) and shown as a radio choice, same shape as
+ * the payment method picker. `availableShippingMethods` re-derives
+ * whenever the province field or the admin's saved methods change; an
+ * effect keeps `form.shippingMethodId`/`shippingMethodName` pointed at a
+ * still-available method any time the previous selection falls out of
+ * that filtered list (e.g. the shopper edits their province to one a
+ * zone-restricted method doesn't cover). The selected method's id/name
+ * are snapshotted onto the built `Order` the same way a product's name is
+ * snapshotted onto each `OrderLine` - so a later admin rename/removal
+ * doesn't change what an already-placed order's receipt shows.
  */
 export function Checkout() {
   useSiteMeta(PAGE_META.checkout);
@@ -102,12 +112,18 @@ export function Checkout() {
   const { lines, subtotal, clearCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { methods: shippingMethods } = useShippingSettings();
 
-  const [form, setForm] = useState<CheckoutFormData>(() => ({
-    ...BLANK_FORM,
-    fullName: user?.name ?? "",
-    email: user?.email ?? "",
-  }));
+  const [form, setForm] = useState<CheckoutFormData>(() => {
+    const initialMethod = filterMethodsForProvince(shippingMethods, "")[0];
+    return {
+      ...BLANK_FORM,
+      fullName: user?.name ?? "",
+      email: user?.email ?? "",
+      shippingMethodId: initialMethod?.id ?? "",
+      shippingMethodName: initialMethod?.name ?? "",
+    };
+  });
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [cardForm, setCardForm] = useState(BLANK_CARD_FORM);
   const [cardErrors, setCardErrors] = useState<CardErrors>({});
@@ -123,12 +139,36 @@ export function Checkout() {
     }
   }, [lines.length, placedOrder, navigate]);
 
+  const availableShippingMethods = useMemo(
+    () => filterMethodsForProvince(shippingMethods, form.province),
+    [shippingMethods, form.province],
+  );
+
+  // Keeps the selection pointed at a still-available method whenever the
+  // filtered list changes out from under it (province edited to one a
+  // zone-restricted method doesn't cover, or an admin edit removes/renames
+  // the previously-selected method).
+  useEffect(() => {
+    if (availableShippingMethods.length === 0) return;
+    const stillAvailable = availableShippingMethods.some((method) => method.id === form.shippingMethodId);
+    if (stillAvailable) return;
+    const next = availableShippingMethods[0];
+    setForm((prev) => ({ ...prev, shippingMethodId: next.id, shippingMethodName: next.name }));
+  }, [availableShippingMethods, form.shippingMethodId]);
+
+  const selectedShippingMethod =
+    availableShippingMethods.find((method) => method.id === form.shippingMethodId) ?? availableShippingMethods[0];
+
   function updateField<K extends keyof CheckoutFormData>(key: K, value: CheckoutFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function updateCardField<K extends keyof typeof BLANK_CARD_FORM>(key: K, value: (typeof BLANK_CARD_FORM)[K]) {
     setCardForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function selectShippingMethod(method: ShippingMethod) {
+    setForm((prev) => ({ ...prev, shippingMethodId: method.id, shippingMethodName: method.name }));
   }
 
   function cardDetails(): CardDetails {
@@ -195,6 +235,11 @@ export function Checkout() {
 
     if (Object.keys(validationErrors).length > 0 || Object.keys(cardValidationErrors).length > 0) return;
 
+    if (!selectedShippingMethod) {
+      setSubmitError("No shipping method is available for the selected province. Please update your address.");
+      return;
+    }
+
     setSubmitError(null);
     setStockIssues([]);
     setIsSubmitting(true);
@@ -207,7 +252,13 @@ export function Checkout() {
         return;
       }
 
-      const order = buildOrder(form, lines, subtotal);
+      const shippingFee = computeShippingFee(selectedShippingMethod, subtotal);
+      const order = buildOrder(
+        { ...form, shippingMethodId: selectedShippingMethod.id, shippingMethodName: selectedShippingMethod.name },
+        lines,
+        subtotal,
+        shippingFee,
+      );
 
       if (form.paymentMethod === "card") {
         await processCardPayment(order);
@@ -240,7 +291,7 @@ export function Checkout() {
 
   if (lines.length === 0) return null; // redirect effect above handles navigation
 
-  const shippingFee = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
+  const shippingFee = selectedShippingMethod ? computeShippingFee(selectedShippingMethod, subtotal) : 0;
   const total = subtotal + shippingFee;
 
   return (
@@ -317,6 +368,49 @@ export function Checkout() {
               onChange={(e) => updateField("notes", e.target.value)}
               disabled={isSubmitting}
             />
+          </fieldset>
+
+          <fieldset className="flex flex-col gap-3">
+            <legend className="mb-1 font-display text-xl text-ink">Shipping method</legend>
+            {availableShippingMethods.length === 0 ? (
+              <p role="alert" className="text-sm text-error">
+                No shipping method is available for this province yet. Please double-check the province above.
+              </p>
+            ) : (
+              availableShippingMethods.map((method) => {
+                const fee = computeShippingFee(method, subtotal);
+                return (
+                  <label
+                    key={method.id}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-md border-2 p-4 transition-colors",
+                      form.shippingMethodId === method.id
+                        ? "border-denim bg-denim-tint/40"
+                        : "border-beige hover:border-beige-dark",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="shippingMethod"
+                      value={method.id}
+                      checked={form.shippingMethodId === method.id}
+                      onChange={() => selectShippingMethod(method)}
+                      className="mt-1 accent-denim"
+                      disabled={isSubmitting}
+                    />
+                    <span className="flex flex-1 items-start justify-between gap-3">
+                      <span>
+                        <span className="block font-semibold text-ink">{method.name}</span>
+                        {method.description && (
+                          <span className="block text-sm text-ink-soft">{method.description}</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 font-medium text-ink">{fee === 0 ? "Free" : formatPHP(fee)}</span>
+                    </span>
+                  </label>
+                );
+              })
+            )}
           </fieldset>
 
           <fieldset className="flex flex-col gap-3">
@@ -425,7 +519,7 @@ export function Checkout() {
               <span className="font-medium text-ink">{formatPHP(subtotal)}</span>
             </div>
             <div className="flex items-center justify-between text-ink-soft">
-              <span>Shipping</span>
+              <span>Shipping{selectedShippingMethod ? ` (${selectedShippingMethod.name})` : ""}</span>
               <span className="font-medium text-ink">
                 {shippingFee === 0 ? "Free" : formatPHP(shippingFee)}
               </span>
@@ -452,7 +546,13 @@ export function Checkout() {
             </div>
           )}
           {submitError && <p className="mt-4 text-sm text-error">{submitError}</p>}
-          <Button type="submit" size="lg" isLoading={isSubmitting} className="mt-6 w-full">
+          <Button
+            type="submit"
+            size="lg"
+            isLoading={isSubmitting}
+            disabled={!selectedShippingMethod}
+            className="mt-6 w-full"
+          >
             Place order
           </Button>
         </div>

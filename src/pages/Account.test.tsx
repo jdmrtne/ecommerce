@@ -25,6 +25,8 @@ const ORDER_ROW: OrderRow = {
     province: "Metro Manila",
     zip: "1400",
     paymentMethod: "cod",
+    shippingMethodId: "standard",
+    shippingMethodName: "Standard Shipping",
     notes: "",
   },
 };

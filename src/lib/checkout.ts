@@ -2,9 +2,6 @@ import type { CartLine } from "@/context/CartContext";
 import type { CheckoutFormData, Order, OrderLine, PaymentMethod } from "@/types/order";
 import type { CardDetails } from "@/types/payment";
 
-export const SHIPPING_FEE = 80;
-export const FREE_SHIPPING_THRESHOLD = 1500;
-
 /**
  * Phase 31 - Payments. "card" is the only method actually processed by a
  * payment gateway (PayMongo) - see `lib/payments/paymongo.ts` and
@@ -95,18 +92,28 @@ function generateOrderNumber(): string {
  * `placeOrder()`, which wrapped the exact same construction in a fake
  * `setTimeout`-based Promise to simulate network latency - real latency
  * now comes from the real API call for signed-in checkouts, so faking it
- * here would just double it up. Shipping fee/threshold logic lives here
- * so Cart, Checkout, and the confirmation page can't drift out of sync
- * on the number shown.
+ * here would just double it up.
+ *
+ * Phase 32 - Shipping. `shippingFee` is now a required parameter instead
+ * of being computed in here from a hardcoded flat rate/threshold - the
+ * admin-configurable shipping methods (`lib/shippingSettingsStore.ts`)
+ * live outside this module, so the caller (`Checkout.tsx`) resolves the
+ * shopper's selected `ShippingMethod` and its fee for the given subtotal
+ * first, via `computeShippingFee()`, and passes the result in. This keeps
+ * `buildOrder` itself free of any dependency on the shipping store.
  */
-export function buildOrder(shipping: CheckoutFormData, lines: CartLine[], subtotal: number): Order {
+export function buildOrder(
+  shipping: CheckoutFormData,
+  lines: CartLine[],
+  subtotal: number,
+  shippingFee: number,
+): Order {
   const orderLines: OrderLine[] = lines.map((line) => ({
     productId: line.productId,
     name: line.product.name,
     price: line.product.price,
     quantity: line.quantity,
   }));
-  const shippingFee = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
 
   return {
     orderNumber: generateOrderNumber(),

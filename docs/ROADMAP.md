@@ -10,9 +10,10 @@ shipped.
 
 ## Status
 
-- **Last completed phase:** 31 — Payments
-- **Next phase to start:** 32 — Shipping. No pending decision noted in
-  its Scope section below.
+- **Last completed phase:** 32 — Shipping
+- **Next phase to start:** 33 — Notifications. Its Scope section notes a
+  pending decision (transactional email provider vs. in-app notification
+  center) that must be confirmed with the user before implementation.
 - **Rule:** complete ONE phase per session, then stop and wait for approval.
 - **Note:** a cross-device settings sync feature (`site_settings` table,
   `lib/api/settings.ts`, `lib/settingsSync.ts`) exists in the codebase
@@ -797,7 +798,7 @@ Intent id). `vercel.json`'s SPA rewrite was fixed to stop swallowing
 
 ---
 
-### Phase 32 — Shipping
+### Phase 32 — Shipping *(COMPLETE)*
 
 **Objective:** Configurable shipping methods/rates applied at checkout.
 
@@ -810,6 +811,19 @@ Intent id). `vercel.json`'s SPA rewrite was fixed to stop swallowing
 
 **Completion Criteria:**
 - Build/lint/tests pass.
+
+**Delivered:** New `/admin/shipping` (Shipping Editor) — admin
+add/remove/reorder/edit of a `ShippingMethod[]` list, each a flat rate
+plus an optional per-method free-shipping subtotal threshold and an
+optional province list (a simple shipping zone: no `provinces` means
+nationwide, a matching list limits the method to those provinces).
+`config/shipping.ts`'s single default reproduces the pre-Phase-32
+hardcoded ₱80/₱1,500-threshold/nationwide behavior exactly, so an
+unconfigured store checks out identically to before. `Checkout.tsx`
+shows the province-filtered methods as a radio choice and applies the
+selected one's fee to the order total, auto-reselecting if the current
+pick falls out of the filtered list. Full detail in `CHANGELOG.md`'s
+Phase 32 entry and `MASTER_HANDOFF.md`'s Phase 32 narrative/table row.
 
 ---
 

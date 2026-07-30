@@ -397,9 +397,48 @@ too, not just the Vite app. Every PayMongo call in the test suite is
 mocked at the module/fetch boundary — no test makes a real network call
 to PayMongo.
 
+**Phase 32 — Shipping.** Admin-configurable shipping methods/rates,
+replacing the hardcoded `SHIPPING_FEE`/`FREE_SHIPPING_THRESHOLD` pair
+`lib/checkout.ts` used since Phase 6. A `ShippingMethod`
+(`types/shipping.ts`) is a flat rate, an optional per-method
+free-shipping subtotal threshold, and an optional list of provinces —
+a simple shipping-zone mechanism; a method with no `provinces` is
+available nationwide, one with a list is only offered when it
+case-insensitively matches the shipping address's province field.
+`config/shipping.ts`'s single default method reproduces the old
+hardcoded behavior exactly (₱80, waived at ₱1,500, nationwide), so a
+template with no admin customization yet checks out identically to
+before this phase. `lib/shippingSettingsStore.ts` is the same
+override-over-defaults `localStorage` store shape as every prior
+editor (closest in spirit to Phase 21's Navigation Editor — a flat
+array with no id referenced elsewhere in the app, so it's
+saved/resolved as one unit) plus the shared logic both the storefront
+and the admin page need and must not drift apart on:
+`filterMethodsForProvince()` (the zone match) and
+`computeShippingFee()` (the flat-rate-or-waived math).
+`pages/admin/ShippingEditor.tsx` (new `/admin/shipping` route and nav
+entry) is the add/remove/reorder/edit CRUD page, in the same shape as
+Navigation/Footer's editors. `Checkout.tsx` now shows the
+province-filtered method list as a radio choice (same shape as the
+payment method picker), auto-reselecting a still-available method
+whenever the filtered list changes out from under the current
+selection (e.g. the shopper edits their province away from a
+zone-restricted method's coverage). `buildOrder()` (`lib/checkout.ts`)
+no longer computes the fee itself — it now takes an explicit
+`shippingFee` parameter, resolved by the caller from the selected
+method, keeping that function free of any dependency on the shipping
+store. The selected method's id and name are snapshotted onto
+`CheckoutFormData` (`shippingMethodId`/`shippingMethodName`) the same
+way a product's name is snapshotted onto each `OrderLine` — an admin
+renaming or removing a method later doesn't change what an
+already-placed order's receipt shows, and needed no `orders` table
+migration since `shipping` is already a `jsonb` column.
+`OrderConfirmation.tsx` shows the snapshotted method name next to the
+shipping fee line.
+
 ## Current Phase
 
-**Phase 31 complete.** See `ROADMAP.md`'s Status section for the next
+**Phase 32 complete.** See `ROADMAP.md`'s Status section for the next
 unfinished phase.
 
 ## Completed Phases
@@ -438,6 +477,7 @@ unfinished phase.
 | 29 | Inventory | New `lib/inventory.ts` — pure stock helpers (`isOutOfStock`, `isLowStock`, `maxPurchasableQuantity`, `checkStockForLines`, shared `MAX_CART_QTY`) built around `Product.stock` (on the type since an earlier phase, now actually load-bearing instead of "architecture only"). `ProductDetail.tsx`/`ProductCard.tsx`/`Cart.tsx` show low/out-of-stock states and cap quantity against real stock (fetched live, since `CartProvider.tsx` itself still only joins the static catalog); `Checkout.tsx` runs a final `checkStockForLines()` re-check against a fresh fetch right before submitting, blocking with an itemized error if stock changed. New `orders_decrement_stock` trigger (`security definer`, `supabase/schema.sql`) is the actual atomic guarantee — row-locks, re-checks, and decrements each tracked line's stock inside the order insert's own transaction, so a concurrent race for the last unit can't oversell; requires Jude to run the updated schema once. `ProductManager.tsx`'s existing Stock field gained validation and the product list shows an in-stock/out-of-stock indicator. New tests `lib/inventory.test.ts`/`Cart.test.tsx`; stock-aware cases added to `ProductDetail.test.tsx`/`Checkout.test.tsx`/`productValidation.test.ts`. |
 | 30 | Customers | Read-only admin customer management: new `/admin/customers` list (`Customers.tsx`, search by name/email, filter by role) and `/admin/customers/:email` detail page (`CustomerDetail.tsx`, profile fields + full order history). New `hooks/useCustomers.ts` wraps `apiGetCustomers()` (`lib/api/auth.ts` plumbing added in Phase 25, unused by any UI until now); the detail page's order history reuses `hooks/useOrders.ts` (Phase 28) as-is, pointed at another account's email. Two new admin-read RLS policies in `supabase/schema.sql` (`profiles`, `orders`) close a real gap — without them, an admin's calls under real Supabase would have silently returned nothing, since both tables' prior policies only ever let a signed-in user read their own row; requires Jude to run the updated schema once. `ADMIN_NAV` gained a "Customers" entry. New tests `hooks/useCustomers.test.ts`/`Customers.test.tsx`/`CustomerDetail.test.tsx`. No create/edit/delete — out of this phase's scope. |
 | 31 | Payments | Real payment processing at checkout via **PayMongo** (provider confirmed with Jude first). Only "card" is gateway-processed — "cod"/"gcash" are unchanged. `lib/payments/paymongo.ts` tokenizes card details directly against PayMongo from the browser with the client-safe public key; three new serverless functions under `api/paymongo/` (`create-intent`/`attach-payment-method`/`payment-intent-status`) are the only places the server-only secret key is read, creating and confirming the actual charge. A card needing 3D Secure sends the shopper's tab to PayMongo and back; the already-built order survives that round trip via `lib/payments/pendingCheckout.ts` (`sessionStorage`, keyed by Payment Intent id), and a new `CheckoutPaymentReturn.tsx` (`/checkout/payment-return`) finishes the checkout once PayMongo confirms success — or shows a deliberately non-retryable error if the charge succeeded but saving the order then failed, to avoid a double charge. `vercel.json`'s SPA rewrite was fixed to stop swallowing `/api/*`; a new `tsconfig.api.json` gives the serverless functions real type-checking. New tests across `lib/payments/`, `api/paymongo/`, `Checkout.test.tsx`, and `CheckoutPaymentReturn.test.tsx` — PayMongo itself mocked in all of them. |
+| 32 | Shipping | Admin-configurable shipping methods/rates, replacing `lib/checkout.ts`'s hardcoded `SHIPPING_FEE`/`FREE_SHIPPING_THRESHOLD`. New `types/shipping.ts` `ShippingMethod` (flat rate, optional per-method free-shipping threshold, optional province list as a shipping zone); `config/shipping.ts`'s single default reproduces the old ₱80/₱1,500/nationwide behavior exactly. `lib/shippingSettingsStore.ts` is the usual override-over-defaults `localStorage` store (Navigation Editor's flat-array shape) plus the shared `filterMethodsForProvince()`/`computeShippingFee()` logic both `Checkout.tsx` and the new `pages/admin/ShippingEditor.tsx` (`/admin/shipping`, new nav entry) use. `Checkout.tsx` shows the province-filtered methods as a radio choice, auto-reselecting when the filtered list changes out from under the current pick. `buildOrder()` now takes an explicit `shippingFee` param instead of computing it; the selected method's id/name are snapshotted onto `CheckoutFormData` (no `orders` schema change needed - `shipping` is already `jsonb`), and `OrderConfirmation.tsx` shows the snapshotted method name. New tests: `shippingSettingsStore.test.ts`, `useShippingSettings.test.ts`, `shippingValidation.test.ts`, `ShippingEditor.test.tsx`, plus new shipping-method cases in `checkout.test.ts`/`Checkout.test.tsx`. |
 
 ## Remaining Phases
 
@@ -742,7 +782,7 @@ no other structural change.)*
 | `config/layouts/contact.ts` | `CONTACT_LAYOUT` — `/contact`'s section order/config (one default layout today) |
 | `config/layouts/shop.ts` | `SHOP_SETTINGS` — page-level settings for `/shop` (search/filter/sort visibility, default sort, grid columns); **not** a section layout, see Known Issues |
 | `config/layouts/pages/` | **Phase 14.** `types.ts` — `DynamicPageDefinition` (a `PageLayout` plus `slug`/`path`/`meta`); `faq.ts` — the `/faq` page definition; `index.ts` — `DYNAMIC_PAGES`, the slug-keyed registry `pages/DynamicPage.tsx` reads from. Adding a new standalone page means adding one file here (registered in `index.ts`) plus one `<Route>` in `App.tsx` — never a new page component. |
-| `config/adminNav.ts` | **Phase 15.** `ADMIN_NAV` — every admin sidebar section (Dashboard, Store Settings, Theme, Homepage, Products, Categories, Navigation, Footer, Policies, Media), each with an `available` flag; only `available` entries get a real `path` and are clickable, the rest render as inert "Soon" rows in `AdminLayout`. Dashboard and Store Settings became `available` in Phase 16; Theme in Phase 17; Homepage in Phase 18; Products in Phase 19; Categories in Phase 20; Navigation in Phase 21; Footer in Phase 22. |
+| `config/adminNav.ts` | **Phase 15.** `ADMIN_NAV` — every admin sidebar section (Dashboard, Store Settings, Theme, Homepage, Products, Categories, Navigation, Footer, Policies, Media, Customers, Shipping), each with an `available` flag; only `available` entries get a real `path` and are clickable, the rest render as inert "Soon" rows in `AdminLayout`. Dashboard and Store Settings became `available` in Phase 16; Theme in Phase 17; Homepage in Phase 18; Products in Phase 19; Categories in Phase 20; Navigation in Phase 21; Footer in Phase 22; Customers in Phase 30; Shipping in Phase 32. |
 | `lib/storeSettingsStore.ts` | **Phase 16.** `localStorage`-backed override for the Store Settings-editable subset of `branding`/`business` (namespaced via `storageKey("store-settings")`). `resolveBranding()`/`resolveBusiness()` layer the saved override over the static default per field; `saveStoreSettingsOverride()`/`resetStoreSettingsOverride()` persist and dispatch `STORE_SETTINGS_CHANGE_EVENT` for same-tab reactivity. |
 | `hooks/useStoreSettings.ts` | **Phase 16.** Reactive hook wrapping `storeSettingsStore.ts` — returns the currently-resolved `branding`/`business`, `save()`/`reset()`, and re-renders its caller on any change (same tab or another tab). Every component that shows admin-editable branding/business info should use this instead of importing `branding`/`business` directly. |
 | `lib/themeSettingsStore.ts` | **Phase 17.** `localStorage`-backed override for `activePresetId` (which of the 10 shipped presets is active) and, optionally, a full customized `ThemeConfig` for that preset. `resolveActivePresetId()`/`resolveActivePreset()` layer the saved override over `config/presets/`'s static default; `saveThemeSettingsOverride()` explicitly drops a stale `theme` if `activePresetId` changes without a matching new `theme` in the same save, so a preset switch never silently carries over another preset's color customization. `resetThemeSettingsOverride()` clears back to `ACTIVE_PRESET_ID` and its shipped theme, dispatching `THEME_SETTINGS_CHANGE_EVENT`. |
@@ -757,6 +797,8 @@ no other structural change.)*
 | `data/categories.ts` | Category catalog |
 | `data/products.ts` | Product catalog (24 products, 6/category); derives `FEATURED_PRODUCTS`, `BEST_SELLERS`, `NEW_ARRIVALS` (Phase 13 — date-sorted top 8) |
 | `data/collections.ts` | Curated collections (id/slug/title/description/productIds) — rendered by the homepage `collections` section (Phase 13) |
+| `config/shipping.ts` | **Phase 32.** `DEFAULT_SHIPPING_METHODS` — the static default `ShippingMethod[]` (one entry, reproducing the pre-Phase-32 hardcoded ₱80/₱1,500-threshold/nationwide behavior exactly), overridable at runtime via the Shipping Editor — see `lib/shippingSettingsStore.ts`. |
+| `lib/shippingSettingsStore.ts` | **Phase 32.** `localStorage`-backed override for the full shipping method list (`{ methods?: ShippingMethod[] }`, same single-whole-array shape as Phase 21's `navigationSettingsStore.ts`). Also owns the shared logic both `Checkout.tsx` and `pages/admin/ShippingEditor.tsx` use so they can't drift apart: `filterMethodsForProvince()` (province/zone matching), `computeShippingFee()` (flat rate, waived at/above a method's own `freeThreshold`), and `generateShippingMethodId()` (slug-with-suffix-on-collision, same approach as `categoriesStore.ts`'s `generateCategoryId()`). |
 
 ## Coding Standards
 
@@ -1481,8 +1523,20 @@ sections of each of the four policy pages
 
 ## Testing Status
 
-Vitest + Testing Library. **537 tests / 83 files**, all passing (up from
-266/46 at the start of Phase 21). New in Phase 31: `lib/payments/
+Vitest + Testing Library. **581 tests / 87 files**, all passing (up from
+266/46 at the start of Phase 21). New in Phase 32: `lib/
+shippingSettingsStore.test.ts` (override/resolve/reset, province
+zone-filtering, fee computation, id generation), `hooks/
+useShippingSettings.test.ts`, `lib/shippingValidation.test.ts`, `pages/
+admin/ShippingEditor.test.tsx` (new file — prefill, add/remove/reorder,
+free-threshold and province-zone fields, empty-name/negative-rate/
+zero-methods validation, reset to defaults), plus new shipping-method
+cases in `lib/checkout.test.ts` (explicit `shippingFee` param replacing
+the old hardcoded-constant assertions) and `pages/Checkout.test.tsx`
+(default method applied, province-based zone filtering, auto-reselect
+when a province edit drops the current zone match, snapshot of the
+selected method's id/name onto the placed order). New in Phase 31:
+`lib/payments/
 paymongo.test.ts` and `lib/payments/pendingCheckout.test.ts` (the new
 client-side PayMongo helpers and the 3DS-survival sessionStorage
 bridge), `api/paymongo/create-intent.test.ts`/`attach-payment-method

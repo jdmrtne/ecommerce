@@ -95,6 +95,10 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
     title: "Media Library",
     description: "Upload and manage the images used across your store.",
   },
+  adminShipping: {
+    title: "Shipping",
+    description: "Add, remove, reorder, and edit the shipping methods and rates offered at checkout.",
+  },
   adminCustomers: {
     title: "Customers",
     description: "View registered customers and their order history.",

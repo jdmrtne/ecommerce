@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  FREE_SHIPPING_THRESHOLD,
-  SHIPPING_FEE,
-  buildOrder,
-  pesosToCentavos,
-  validateCard,
-  validateCheckout,
-} from "@/lib/checkout";
+import { buildOrder, pesosToCentavos, validateCard, validateCheckout } from "@/lib/checkout";
 import type { CartLine } from "@/context/CartContext";
 import type { CheckoutFormData } from "@/types/order";
 import type { CardDetails } from "@/types/payment";
@@ -34,6 +27,8 @@ const VALID_SHIPPING: CheckoutFormData = {
   province: "Metro Manila",
   zip: "1400",
   paymentMethod: "cod",
+  shippingMethodId: "standard",
+  shippingMethodName: "Standard Shipping",
   notes: "",
 };
 
@@ -64,38 +59,36 @@ describe("validateCheckout", () => {
 });
 
 describe("buildOrder", () => {
-  it("charges the standard shipping fee below the free-shipping threshold", () => {
+  it("charges the given shipping fee and totals it into the order", () => {
     const lines: CartLine[] = [{ productId: "p1", quantity: 2, product: product({ price: 250 }) }];
     const subtotal = 500;
-    const order = buildOrder(VALID_SHIPPING, lines, subtotal);
+    const order = buildOrder(VALID_SHIPPING, lines, subtotal, 80);
 
     expect(order.subtotal).toBe(500);
-    expect(order.shippingFee).toBe(SHIPPING_FEE);
-    expect(order.total).toBe(500 + SHIPPING_FEE);
+    expect(order.shippingFee).toBe(80);
+    expect(order.total).toBe(580);
     expect(order.orderNumber).toMatch(/^CV-\d{6}$/);
     expect(order.lines).toEqual([
       { productId: "p1", name: "Sample Product", price: 250, quantity: 2 },
     ]);
   });
 
-  it("waives shipping at or above the free-shipping threshold", () => {
-    const lines: CartLine[] = [
-      { productId: "p1", quantity: 1, product: product({ price: FREE_SHIPPING_THRESHOLD }) },
-    ];
-    const order = buildOrder(VALID_SHIPPING, lines, FREE_SHIPPING_THRESHOLD);
+  it("supports a waived (zero) shipping fee", () => {
+    const lines: CartLine[] = [{ productId: "p1", quantity: 1, product: product({ price: 1500 }) }];
+    const order = buildOrder(VALID_SHIPPING, lines, 1500, 0);
 
     expect(order.shippingFee).toBe(0);
-    expect(order.total).toBe(FREE_SHIPPING_THRESHOLD);
+    expect(order.total).toBe(1500);
   });
 
   it("carries the shipping details through to the order", () => {
-    const order = buildOrder(VALID_SHIPPING, [], 0);
+    const order = buildOrder(VALID_SHIPPING, [], 0, 0);
     expect(order.shipping).toEqual(VALID_SHIPPING);
   });
 
   it("generates a unique-looking order number each call", () => {
-    const a = buildOrder(VALID_SHIPPING, [], 0);
-    const b = buildOrder(VALID_SHIPPING, [], 0);
+    const a = buildOrder(VALID_SHIPPING, [], 0, 0);
+    const b = buildOrder(VALID_SHIPPING, [], 0, 0);
     expect(a.orderNumber).toMatch(/^CV-\d{6}$/);
     expect(b.orderNumber).toMatch(/^CV-\d{6}$/);
   });

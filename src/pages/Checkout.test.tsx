@@ -9,6 +9,8 @@ import { renderWithProviders } from "@/test/utils";
 import { fakeSupabase } from "@/test/fakeSupabaseAuth";
 import { apiSaveProduct } from "@/lib/api/products";
 import { attachPaymentMethod, createPaymentIntent, createPaymentMethod, redirectToPaymentAuth } from "@/lib/payments/paymongo";
+import { saveShippingSettingsOverride } from "@/lib/shippingSettingsStore";
+import type { ShippingMethod } from "@/types/shipping";
 
 // Card payments are processed against the real PayMongo API in
 // production (see lib/payments/paymongo.ts) - mocked here at the module
@@ -236,5 +238,79 @@ describe("Checkout", () => {
     expect(await screen.findByText("Enter a valid card number.")).toBeInTheDocument();
     expect(createPaymentMethod).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Checkout" })).toBeInTheDocument();
+  });
+
+  describe("shipping methods (Phase 32)", () => {
+    const NATIONWIDE: ShippingMethod = { id: "standard", name: "Standard Shipping", rate: 80, freeThreshold: 1500 };
+    const ZONE: ShippingMethod = {
+      id: "mm-express",
+      name: "Metro Manila Express",
+      rate: 150,
+      provinces: ["Metro Manila"],
+    };
+
+    it("applies the single default method's fee to the order total", async () => {
+      fakeSupabase.__signInAs(PROFILE);
+      const user = userEvent.setup();
+      renderWithProviders(<TestApp />, ["/checkout"]);
+
+      await screen.findByRole("heading", { name: "Checkout" });
+      expect(screen.getByRole("radio", { name: /Standard Shipping/ })).toBeChecked();
+      await fillRequiredFields(user, "Jude Tambago", "jude@example.com");
+      await user.click(screen.getByRole("button", { name: "Place order" }));
+
+      await screen.findByText("Order confirmed");
+      const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "jude@example.com").order("placed_at");
+      expect(data?.[0].shipping_fee).toBe(80);
+    });
+
+    it("only offers a zone-restricted method when the entered province matches", async () => {
+      saveShippingSettingsOverride([NATIONWIDE, ZONE]);
+      const user = userEvent.setup();
+      renderWithProviders(<TestApp />, ["/checkout"]);
+
+      await screen.findByRole("heading", { name: "Checkout" });
+      await user.type(screen.getByLabelText("Province"), "Cebu");
+      expect(screen.queryByRole("radio", { name: /Metro Manila Express/ })).not.toBeInTheDocument();
+
+      await user.clear(screen.getByLabelText("Province"));
+      await user.type(screen.getByLabelText("Province"), "Metro Manila");
+      expect(await screen.findByRole("radio", { name: /Metro Manila Express/ })).toBeInTheDocument();
+    });
+
+    it("switches the selection back to a nationwide method when the province no longer matches the zone", async () => {
+      saveShippingSettingsOverride([NATIONWIDE, ZONE]);
+      const user = userEvent.setup();
+      renderWithProviders(<TestApp />, ["/checkout"]);
+
+      await screen.findByRole("heading", { name: "Checkout" });
+      await user.type(screen.getByLabelText("Province"), "Metro Manila");
+      await user.click(await screen.findByRole("radio", { name: /Metro Manila Express/ }));
+      expect(screen.getByRole("radio", { name: /Metro Manila Express/ })).toBeChecked();
+
+      await user.clear(screen.getByLabelText("Province"));
+      await user.type(screen.getByLabelText("Province"), "Cebu");
+      expect(screen.getByRole("radio", { name: /Standard Shipping/ })).toBeChecked();
+    });
+
+    it("snapshots the selected method's id and name onto the order and charges its fee", async () => {
+      fakeSupabase.__signInAs(PROFILE);
+      saveShippingSettingsOverride([NATIONWIDE, ZONE]);
+      const user = userEvent.setup();
+      renderWithProviders(<TestApp />, ["/checkout"]);
+
+      await screen.findByRole("heading", { name: "Checkout" });
+      await fillRequiredFields(user, "Jude Tambago", "jude@example.com");
+      await user.clear(screen.getByLabelText("Province"));
+      await user.type(screen.getByLabelText("Province"), "Metro Manila");
+      await user.click(await screen.findByRole("radio", { name: /Metro Manila Express/ }));
+      await user.click(screen.getByRole("button", { name: "Place order" }));
+
+      await screen.findByText("Order confirmed");
+      const { data } = await fakeSupabase.from("orders").select("*").eq("user_email", "jude@example.com").order("placed_at");
+      expect(data?.[0].shipping_fee).toBe(150);
+      expect(data?.[0].shipping.shippingMethodId).toBe("mm-express");
+      expect(data?.[0].shipping.shippingMethodName).toBe("Metro Manila Express");
+    });
   });
 });

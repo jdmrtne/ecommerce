@@ -23,6 +23,8 @@ function order(orderNumber: string): Order {
       province: "Province",
       zip: "1000",
       paymentMethod: "cod",
+      shippingMethodId: "standard",
+      shippingMethodName: "Standard Shipping",
       notes: "",
     },
   };

@@ -9,6 +9,15 @@ export interface CheckoutFormData {
   province: string;
   zip: string;
   paymentMethod: PaymentMethod;
+  /** Id of the selected `ShippingMethod` (`types/shipping.ts`) at the moment of checkout. */
+  shippingMethodId: string;
+  /**
+   * Name of the selected shipping method, snapshotted at checkout time -
+   * same reasoning as `OrderLine.name` below: an admin editing/removing a
+   * method later shouldn't change what an already-placed order's receipt
+   * shows.
+   */
+  shippingMethodName: string;
   notes: string;
 }
 

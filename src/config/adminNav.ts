@@ -11,6 +11,7 @@ import {
   FileText,
   Image,
   Users,
+  Truck,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -30,7 +31,9 @@ export interface AdminNavItem {
  * Categories, Phase 21 added Navigation, Phase 22 added Footer, Phase 23
  * added Policies, Phase 24 added Media, Phase 30 added Customers).
  * Sections without a `path` render as inert "Coming soon" list items
- * rather than dead links, so nothing 404s.
+ * rather than dead links, so nothing 404s. Phase 31 (Payments) added no
+ * entry here - it's a checkout-time flow, not an admin-configured
+ * section. Phase 32 added Shipping.
  */
 export const ADMIN_NAV: AdminNavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/admin", available: true },
@@ -44,4 +47,5 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { label: "Policies", icon: FileText, path: "/admin/policies", available: true },
   { label: "Media", icon: Image, path: "/admin/media", available: true },
   { label: "Customers", icon: Users, path: "/admin/customers", available: true },
+  { label: "Shipping", icon: Truck, path: "/admin/shipping", available: true },
 ];

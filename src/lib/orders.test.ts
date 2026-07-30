@@ -19,6 +19,8 @@ function order(overrides: Partial<Order> = {}): Order {
       province: "Province",
       zip: "1000",
       paymentMethod: "cod",
+      shippingMethodId: "standard",
+      shippingMethodName: "Standard Shipping",
       notes: "",
     },
     ...overrides,

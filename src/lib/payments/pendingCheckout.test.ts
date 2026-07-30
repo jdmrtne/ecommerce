@@ -18,6 +18,8 @@ const ORDER: Order = {
     province: "Metro Manila",
     zip: "1400",
     paymentMethod: "card",
+    shippingMethodId: "standard",
+    shippingMethodName: "Standard Shipping",
     notes: "",
   },
 };

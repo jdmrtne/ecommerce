@@ -6,6 +6,101 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Phase 32 — Shipping
+
+Admin-configurable shipping methods/rates, replacing the flat hardcoded
+`SHIPPING_FEE`/`FREE_SHIPPING_THRESHOLD` pair `lib/checkout.ts` had used
+since Phase 6. No pending decision to confirm here (unlike Phase 31's
+payment provider) — the roadmap entry only asked for a flat rate at
+minimum, so no provider/vendor choice was needed.
+
+A `ShippingMethod` is a flat rate, an optional per-method free-shipping
+subtotal threshold, and an optional list of provinces — a simple
+shipping-zone mechanism: no `provinces` means the method is available
+nationwide, a matching list limits it to those provinces (matched
+case-insensitively against the shipping address's province field). The
+one static default method reproduces the old hardcoded behavior exactly
+(₱80, waived at ₱1,500, nationwide), so a store with no admin
+customization yet checks out identically to before this phase.
+
+### Added
+- `types/shipping.ts` — the `ShippingMethod` type.
+- `config/shipping.ts` — `DEFAULT_SHIPPING_METHODS`, the static default
+  list (one entry, matching the pre-Phase-32 hardcoded behavior).
+- `lib/shippingSettingsStore.ts` — the usual `localStorage`
+  override-over-defaults store, same single-whole-array shape as Phase
+  21's `navigationSettingsStore.ts` (`MAIN_NAV` has no per-entry id
+  referenced elsewhere, and neither does a shipping method list).
+  `resolveShippingMethods()`/`saveShippingSettingsOverride()`/
+  `resetShippingSettingsOverride()` are the usual trio;
+  `filterMethodsForProvince()` (province/zone matching) and
+  `computeShippingFee()` (flat rate, waived at/above a method's own
+  `freeThreshold`) are the shared logic both `Checkout.tsx` and the new
+  admin editor need and must not drift apart on. `generateShippingMethodId()`
+  slugifies a new method's name into a unique id, suffix-on-collision —
+  same approach as `categoriesStore.ts`'s `generateCategoryId()`.
+- `hooks/useShippingSettings.ts` — the reactive wrapper (same same-tab-
+  event + cross-tab-`storage` subscription shape as every prior editor
+  hook).
+- `lib/shippingValidation.ts` — `validateShippingMethod()` (name
+  required; rate must be a non-negative number; an optional freeThreshold,
+  if present, must also be non-negative) and `validateShippingMethods()`
+  (validates every row, plus a list-level "at least one method" check).
+- `pages/admin/ShippingEditor.tsx` (new `/admin/shipping` route, new
+  "Shipping" `ADMIN_NAV` entry) — add/remove/reorder/edit CRUD over the
+  method list: name, rate, optional description, optional free-shipping
+  threshold, optional comma-separated province list. "Reset to defaults"
+  disabled until an override exists, same as every prior editor.
+- `config/site.ts` — `PAGE_META.adminShipping`.
+- New test files: `lib/shippingSettingsStore.test.ts`, `hooks/
+  useShippingSettings.test.ts`, `lib/shippingValidation.test.ts`,
+  `pages/admin/ShippingEditor.test.tsx`.
+
+### Changed
+- `lib/checkout.ts` — removed the hardcoded `SHIPPING_FEE`/
+  `FREE_SHIPPING_THRESHOLD` constants; `buildOrder()` now takes an
+  explicit `shippingFee` parameter instead of computing it internally,
+  so the function itself has no dependency on the shipping store — the
+  caller (`Checkout.tsx`) resolves the shopper's selected method's fee
+  first, via `computeShippingFee()`, and passes the result in.
+- `types/order.ts` — `CheckoutFormData` gained `shippingMethodId`/
+  `shippingMethodName`, snapshotted at checkout time the same way
+  `OrderLine.name` snapshots a product's name — an admin later renaming
+  or removing a method doesn't change what an already-placed order's
+  receipt shows. No `orders` table migration needed: `shipping` is
+  already stored as `jsonb`.
+- `Checkout.tsx` — new "Shipping method" fieldset, a radio choice (same
+  shape as the existing payment method picker) over the methods
+  available for the entered province, each row showing its fee (or
+  "Free" once the subtotal clears its threshold). An effect
+  auto-reselects a still-available method whenever the province-filtered
+  list changes out from under the current pick (e.g. the shopper edits
+  their province away from a zone-restricted method's coverage). Submit
+  is blocked with an inline error if no method is available for the
+  entered province (only reachable with a fully custom, zone-only admin
+  configuration — the shipped default is always nationwide).
+- `OrderConfirmation.tsx` — the shipping line now also shows the
+  snapshotted method name.
+- `config/adminNav.ts` — new "Shipping" entry (`Truck` icon).
+- `lib/checkout.test.ts` — `buildOrder` cases rewritten for the explicit
+  `shippingFee` parameter (charges the given fee and totals it in;
+  supports a waived/zero fee) instead of asserting against the removed
+  constants.
+- `pages/Checkout.test.tsx` — new shipping-method cases: the single
+  default method's fee applied to the total; a zone-restricted method
+  only offered for a matching province; the selection switching back to
+  a nationwide method when the province no longer matches; the selected
+  method's id/name snapshotted onto the placed order.
+- Seven other test files constructing a `CheckoutFormData` fixture
+  updated for the two new required fields
+  (`adminStats.test.ts`/`api/orders.test.ts`/`orders.test.ts`/
+  `payments/pendingCheckout.test.ts`/`Account.test.tsx`/
+  `CheckoutPaymentReturn.test.tsx`/`admin/CustomerDetail.test.tsx`).
+
+### QA
+- `tsc -b`, `vite build`, `npx oxlint src`, and `npm test` (581/581
+  tests, 87 files) all pass clean.
+
 ## Phase 31 — Payments
 
 Real payment processing at checkout, replacing what was otherwise still
