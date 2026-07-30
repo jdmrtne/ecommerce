@@ -1,5 +1,5 @@
-import type { ApiRequest, ApiResponse } from "./_shared";
-import { MissingApiKeyError, RESEND_API, resendApiKey, resendFromAddress } from "./_shared";
+import type { ApiRequest, ApiResponse } from "./_shared.js";
+import { MissingApiKeyError, RESEND_API, resendApiKey, resendFromAddress } from "./_shared.js";
 
 interface EmailOrderLine {
   name: string;

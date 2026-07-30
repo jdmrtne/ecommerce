@@ -6,6 +6,35 @@ and `docs/ROADMAP.md` for what's next. This file now lives in `docs/`
 alongside those two — the root-level copy has been replaced with a
 pointer.
 
+## Hotfix — serverless function relative imports
+
+Every `api/paymongo/*.ts` and `api/resend/*.ts` handler imported its
+sibling `_shared.ts` as `from "./_shared"` (no extension). This type-
+checked and passed every local test fine — `tsconfig.api.json`'s
+`moduleResolution: "bundler"` and Vitest's own resolver both accept an
+extensionless relative specifier — but broke at runtime on Vercel: with
+`package.json`'s `"type": "module"`, these deploy as native Node ESM,
+and Node's ESM loader (unlike CommonJS `require` or a bundler) does
+**not** resolve extensionless relative specifiers on its own. Live
+deployments failed every one of these functions with
+`ERR_MODULE_NOT_FOUND: Cannot find module '/var/task/api/.../_shared'`
+— surfaced when a real order's confirmation email failed with a 500.
+
+Fixed by importing `from "./_shared.js"` instead in every handler
+(`create-intent.ts`/`attach-payment-method.ts`/
+`payment-intent-status.ts`/`send-order-confirmation.ts`) — TypeScript's
+bundler resolution mode explicitly supports a `.js`-extensioned
+specifier resolving to a same-named `.ts` source file (the file that
+extension actually points to once compiled), so this satisfies both
+`tsc` and Node's ESM loader at once. Test files' own extensionless
+`_shared` imports were left as-is — they run under Vitest's own
+resolver, not deployed to Vercel, so they were never actually affected.
+No behavior change, no new test needed (the existing `api/paymongo/*
+.test.ts`/`api/resend/*.test.ts` suites already exercise every code
+path through these files — the bug was purely an artifact of Vercel's
+real Node ESM runtime, which the local test environment doesn't
+reproduce).
+
 ## Phase 33 — Notifications
 
 Order-confirmation notifications, both channels the roadmap entry

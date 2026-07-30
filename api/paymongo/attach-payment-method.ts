@@ -1,5 +1,5 @@
-import type { ApiRequest, ApiResponse } from "./_shared";
-import { PAYMONGO_API, MissingSecretKeyError, basicAuthHeader, extractPaymongoError, secretKey } from "./_shared";
+import type { ApiRequest, ApiResponse } from "./_shared.js";
+import { PAYMONGO_API, MissingSecretKeyError, basicAuthHeader, extractPaymongoError, secretKey } from "./_shared.js";
 
 interface PaymongoAttachResponse {
   data?: {
